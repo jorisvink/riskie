@@ -43,7 +43,6 @@ $(BIN): $(OBJDIR) $(OBJS)
 install: $(BIN)
 	mkdir -p $(DESTDIR)$(INSTALL_DIR)
 	install -m 555 $(BIN) $(DESTDIR)$(INSTALL_DIR)/$(BIN)
-	$(MAKE) -C pontifex install
 
 $(OBJDIR):
 	@mkdir -p $(OBJDIR)
