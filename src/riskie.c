@@ -650,7 +650,7 @@ riskie_instr_shamt(struct vm *vm, u_int32_t instr)
 {
 	PRECOND(vm != NULL);
 
-	return ((instr >> 20) & 0x1f);
+	return ((instr >> 20) & 0x3f);
 }
 
 /*
@@ -1102,10 +1102,11 @@ riskie_opcode_i_type_64(struct vm *vm, u_int32_t instr)
 
 	switch (funct3) {
 	case RISCV_RV64I_INSTRUCTION_ADDIW:
-		vm->regs.x[rd] = (u_int32_t)(vm->regs.x[rs1] + (int32_t)imm);
+		v32 = (u_int32_t)vm->regs.x[rs1] + (int32_t)imm;
+		vm->regs.x[rd] = riskie_sign_extend(v32, 31);
 		break;
 	case RISCV_RV64I_INSTRUCTION_SLLIW:
-		vm->regs.x[rd] = (int32_t)(vm->regs.x[rs1] << shamt);
+		vm->regs.x[rd] = (u_int32_t)vm->regs.x[rs1] << shamt;
 		break;
 	case RISCV_RV64I_FUNCTION_SRIW:
 		switch (funct7) {
@@ -1252,12 +1253,12 @@ riskie_opcode_r_type_64(struct vm *vm, u_int32_t instr)
 	case RISCV_RV64I_FUNCTION_ADD_SUB:
 		switch (funct7) {
 		case RISCV_RV64I_INSTRUCTION_ADDW:
-			vm->regs.x[rd] = (u_int32_t)(vm->regs.x[rs1] +
-			    vm->regs.x[rs2]);
+			v32 = vm->regs.x[rs1] + vm->regs.x[rs2];
+			vm->regs.x[rd] = riskie_sign_extend(v32, 31);
 			break;
 		case RISCV_RV64I_INSTRUCTION_SUBW:
-			vm->regs.x[rd] = (u_int32_t)(vm->regs.x[rs1] -
-			    vm->regs.x[rs2]);
+			vm->regs.x[rd] = (int32_t)vm->regs.x[rs1] -
+			    (int32_t)vm->regs.x[rs2];
 			break;
 		default:
 			riskie_vm_exception(vm, "illegal addsub 0x%08x", instr);
