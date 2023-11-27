@@ -698,6 +698,8 @@ riskie_instr_imm_b(struct vm *vm, u_int32_t instr)
 {
 	u_int32_t		imm;
 
+	PRECOND(vm != NULL);
+
 	imm = ((instr >> 31) & 0x01) << 12;
 	imm |= ((instr >> 7) & 0x01) << 11;
 	imm |= ((instr >> 30) & 0x01) << 10;
