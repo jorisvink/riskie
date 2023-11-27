@@ -867,11 +867,11 @@ riskie_opcode_load(struct vm *vm, u_int32_t instr)
 	switch (funct3) {
 	case RISCV_RV32I_INSTRUCTION_LB:
 		v32 = riskie_mem_fetch(vm, addr, 8);
-		vm->regs.x[rd] = riskie_sign_extend(v32, 31);
+		vm->regs.x[rd] = riskie_sign_extend(v32, 7);
 		break;
 	case RISCV_RV32I_INSTRUCTION_LH:
 		v32 = riskie_mem_fetch(vm, addr, 16);
-		vm->regs.x[rd] = riskie_sign_extend(v32, 31);
+		vm->regs.x[rd] = riskie_sign_extend(v32, 15);
 		break;
 	case RISCV_RV32I_INSTRUCTION_LW:
 		v32 = riskie_mem_fetch(vm, addr, 32);
