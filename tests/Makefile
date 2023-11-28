@@ -1,24 +1,22 @@
 # riskie tests Makefile
 
-OBJDIR?=obj
+TEST_ROOT=$(shell pwd)
+OBJDIR?=$(TEST_ROOT)/obj
+
+export TEST_ROOT
+export OBJDIR
 
 AS=riscv64-unknown-elf-as
 LD=riscv64-unknown-elf-ld
 OBJCOPY=riscv64-unknown-elf-objcopy
 
-TESTS=		$(OBJDIR)/loads.bin $(OBJDIR)/csr.bin
+TESTS=	instructions/loads \
+	instructions/csr
 
-all: $(OBJDIR) $(TESTS)
-
-$(OBJDIR)/loads.bin: $(OBJDIR) loads.s link.ld
-	$(AS) -march=rv64i -c loads.s -o $(OBJDIR)/loads.o
-	$(LD) $(OBJDIR)/loads.o -T link.ld -o $(OBJDIR)/loads.elf
-	$(OBJCOPY) -O binary $(OBJDIR)/loads.elf $(OBJDIR)/loads.bin
-
-$(OBJDIR)/csr.bin: $(OBJDIR) csr.s link.ld
-	$(AS) -march=rv64i -c csr.s -o $(OBJDIR)/csr.o
-	$(LD) $(OBJDIR)/csr.o -T link.ld -o $(OBJDIR)/csr.elf
-	$(OBJCOPY) -O binary $(OBJDIR)/csr.elf $(OBJDIR)/csr.bin
+all: $(OBJDIR)
+	@for test in $(TESTS); do			\
+		$(MAKE) -C $$test;			\
+	done
 
 $(OBJDIR):
 	@mkdir -p $(OBJDIR)

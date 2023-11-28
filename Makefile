@@ -50,5 +50,6 @@ $(OBJDIR)/%.o: src/%.c
 
 clean:
 	rm -rf $(OBJDIR) $(BIN)
+	$(MAKE) -C tests clean
 
 .PHONY: all clean force
