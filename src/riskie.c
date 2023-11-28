@@ -838,14 +838,22 @@ riskie_instr_imm_s(struct hart *ht, u_int32_t instr)
 
 /*
  * Causes an exception if the given CSR is not writable.
+ * The upper 4-bits encode read, write and access capabilities.
+ *
+ * A CSR is 12-bit.
  */
 static void
 riskie_csr_writable(struct hart *ht, u_int16_t csr)
 {
+	u_int8_t	perm;
+
 	PRECOND(ht != NULL);
 
-	if (csr >= RISCV_CSR_RO_VENDOR_ID && csr <= RISCV_CSR_RO_HART_ID)
-		riskie_ht_exception(ht, "attempted write to csr %u", csr);
+	perm = (csr >> 10) & 0xff;
+
+	/* Both bits set in perm means the CSR is read-only. */
+	if (perm == 3)
+		riskie_ht_exception(ht, "write to ro csr 0x%04x", csr);
 }
 
 /*
