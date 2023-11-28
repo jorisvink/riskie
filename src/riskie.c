@@ -129,6 +129,7 @@
 #define RISCV_RV32I_INSTRUCTION_LUI		0x37
 #define RISCV_RV32I_INSTRUCTION_JAL		0x6f
 #define RISCV_RV32I_INSTRUCTION_JALR		0x67
+#define RISCV_RV32I_INSTRUCTION_FENCE		0x0f
 
 /*
  * The RV64I instruction set.
@@ -901,6 +902,8 @@ riskie_next_instruction(struct hart *ht)
 		break;
 	case RISCV_RV32I_INSTRUCTION_JALR:
 		riskie_opcode_jalr(ht, instr);
+		break;
+	case RISCV_RV32I_INSTRUCTION_FENCE:
 		break;
 	default:
 		riskie_ht_exception(ht, "illegal instruction 0x%08x", instr);
