@@ -41,8 +41,19 @@
 /* The x0 - x31 registers. */
 #define RISCV_REGISTER_COUNT		32
 
+/* Maximum number of CSRs. */
+#define RISCV_CSR_COUNT			4096
+
 /* The size of our memory (2MB). */
 #define VM_MEM_SIZE			(1 << 21)
+
+/*
+ * Some RISC-V defined CSRs we prepopulate.
+ */
+#define RISCV_CSR_RO_VENDOR_ID		0xf11
+#define RISCV_CSR_RO_ARCHITECTURE_ID	0xf12
+#define RISCV_CSR_RO_IMPLEMENTATION_ID	0xf13
+#define RISCV_CSR_RO_HART_ID		0xf14
 
 /*
  * The RV32I instruction set.
@@ -103,6 +114,16 @@
 #define RISCV_RV32I_INSTRUCTION_BLTU		0x06
 #define RISCV_RV32I_INSTRUCTION_BGEU		0x07
 
+/* System instructions. */
+#define RISCV_RV32I_OPCODE_SYSTEM		0x73
+#define RISCV_RV32I_INSTRUCTION_ECALL		0x00
+#define RISCV_RV32I_INSTRUCTION_CSRRW		0x01
+#define RISCV_RV32I_INSTRUCTION_CSRRS		0x02
+#define RISCV_RV32I_INSTRUCTION_CSRRC		0x03
+#define RISCV_RV32I_INSTRUCTION_CSRRWI		0x05
+#define RISCV_RV32I_INSTRUCTION_CSRRSI		0x06
+#define RISCV_RV32I_INSTRUCTION_CSRRCI		0x07
+
 /* Other instructions. */
 #define RISCV_RV32I_INSTRUCTION_AUIPC		0x17
 #define RISCV_RV32I_INSTRUCTION_LUI		0x37
@@ -151,6 +172,8 @@ struct vm {
 		u_int64_t	pc;
 		u_int64_t	x[RISCV_REGISTER_COUNT];
 	} regs;
+
+	u_int64_t		csr[RISCV_CSR_COUNT];
 };
 
 static void	riskie_sig_handler(int);
@@ -164,12 +187,14 @@ static void	riskie_vm_exception(struct vm *, const char *, ...)
 		    __attribute__((noreturn));
 
 static void		riskie_validate_pc(struct vm *);
+static u_int16_t	riskie_validate_csr(struct vm *, u_int16_t);
 static u_int8_t		riskie_validate_register(struct vm *, u_int8_t);
 static void		riskie_validate_mem_access(struct vm *,
 			    u_int64_t, size_t);
 
 static void		riskie_next_instruction(struct vm *);
 static u_int64_t	riskie_sign_extend(u_int32_t, u_int8_t);
+static void		riskie_csr_writable(struct vm *, u_int16_t);
 
 static u_int8_t		riskie_mem_fetch8(struct vm *, u_int64_t);
 static u_int16_t	riskie_mem_fetch16(struct vm *, u_int64_t);
@@ -198,6 +223,7 @@ static void	riskie_opcode_jalr(struct vm *, u_int32_t);
 static void	riskie_opcode_load(struct vm *, u_int32_t);
 static void	riskie_opcode_store(struct vm *, u_int32_t);
 static void	riskie_opcode_auipc(struct vm *, u_int32_t);
+static void	riskie_opcode_system(struct vm *, u_int32_t);
 static void	riskie_opcode_b_type(struct vm *, u_int32_t);
 static void	riskie_opcode_r_type_32(struct vm *, u_int32_t);
 static void	riskie_opcode_r_type_64(struct vm *, u_int32_t);
@@ -493,6 +519,7 @@ riskie_vm_init(struct vm *vm, const char *path)
 		errx(1, "failed to read, only got %zd/%zd", ret, st.st_size);
 
 	vm->regs.x[2] = VM_MEM_SIZE;
+	vm->csr[RISCV_CSR_RO_VENDOR_ID] = 0x20231021;
 
 	close(fd);
 
@@ -585,6 +612,18 @@ riskie_validate_pc(struct vm *vm)
 }
 
 /*
+ * Validate the given CSR to be a valid one.
+ */
+static u_int16_t
+riskie_validate_csr(struct vm *vm, u_int16_t csr)
+{
+	if (csr >= RISCV_CSR_COUNT)
+		riskie_vm_exception(vm, "csr out of bounds (%u)", csr);
+
+	return (csr);
+}
+
+/*
  * Validate the given register to be a valid one.
  */
 static u_int8_t
@@ -651,6 +690,21 @@ riskie_instr_shamt(struct vm *vm, u_int32_t instr)
 	PRECOND(vm != NULL);
 
 	return ((instr >> 20) & 0x3f);
+}
+
+/*
+ * Extract the "csr" part of the given instruction. (bits 31 .. 20)
+ */
+static u_int16_t
+riskie_instr_csr(struct vm *vm, u_int32_t instr)
+{
+	u_int16_t	csr;
+
+	PRECOND(vm != NULL);
+
+	csr = (instr >> 20) & 0xfff;
+
+	return (riskie_validate_csr(vm, csr));
 }
 
 /*
@@ -782,6 +836,18 @@ riskie_instr_imm_s(struct vm *vm, u_int32_t instr)
 }
 
 /*
+ * Causes an exception if the given CSR is not writable.
+ */
+static void
+riskie_csr_writable(struct vm *vm, u_int16_t csr)
+{
+	PRECOND(vm != NULL);
+
+	if (csr >= RISCV_CSR_RO_VENDOR_ID && csr <= RISCV_CSR_RO_HART_ID)
+		riskie_vm_exception(vm, "attempted write to csr %u", csr);
+}
+
+/*
  * Fetch the next instruction, decode it and execute it.
  */
 static void
@@ -805,6 +871,9 @@ riskie_next_instruction(struct vm *vm)
 		break;
 	case RISCV_RV32I_OPCODE_STORE:
 		riskie_opcode_store(vm, instr);
+		break;
+	case RISCV_RV32I_OPCODE_SYSTEM:
+		riskie_opcode_system(vm, instr);
 		break;
 	case RISCV_RV32I_OPCODE_B_TYPE:
 		riskie_opcode_b_type(vm, instr);
@@ -935,6 +1004,77 @@ riskie_opcode_store(struct vm *vm, u_int32_t instr)
 		break;
 	default:
 		riskie_vm_exception(vm, "illegal store 0x%08x", instr);
+	}
+}
+
+/*
+ * A system instruction was found, check funct3 and execute the
+ * correct one.
+ */
+static void
+riskie_opcode_system(struct vm *vm, u_int32_t instr)
+{
+	u_int16_t	csr;
+	u_int32_t	funct3;
+	u_int8_t	rd, rs1;
+
+	PRECOND(vm != NULL);
+
+	funct3 = (instr >> 12) & 0x7;
+
+	rd = riskie_instr_rd(vm, instr);
+	rs1 = riskie_instr_rs1(vm, instr);
+	csr = riskie_instr_csr(vm, instr);
+
+	riskie_debug("SYSTEM, funct3=0x%02x, rd=%u, rs1=%u, csr=0x%02x",
+	    funct3, rd, rs1, csr);
+
+	switch (funct3) {
+	case RISCV_RV32I_INSTRUCTION_CSRRW:
+	case RISCV_RV32I_INSTRUCTION_CSRRS:
+	case RISCV_RV32I_INSTRUCTION_CSRRC:
+		rs1 = vm->regs.x[rs1];
+		break;
+	case RISCV_RV32I_INSTRUCTION_CSRRWI:
+	case RISCV_RV32I_INSTRUCTION_CSRRSI:
+	case RISCV_RV32I_INSTRUCTION_CSRRCI:
+		rs1 = rs1 & 0xf;
+		break;
+	}
+
+	switch (funct3) {
+	case RISCV_RV32I_INSTRUCTION_ECALL:
+		/* big bunch of nothing. */
+		break;
+	case RISCV_RV32I_INSTRUCTION_CSRRW:
+	case RISCV_RV32I_INSTRUCTION_CSRRWI:
+		/*
+		 * This counts as atomic unless we start doing
+		 * multiprocess approaches for the future harts.
+		 */
+		riskie_csr_writable(vm, csr);
+		if (rd != 0)
+			vm->regs.x[rd] = vm->csr[csr];
+		vm->csr[csr] = rs1;
+		break;
+	case RISCV_RV32I_INSTRUCTION_CSRRS:
+	case RISCV_RV32I_INSTRUCTION_CSRRSI:
+		vm->regs.x[rd] = vm->csr[csr];
+		if (rs1 != 0) {
+			riskie_csr_writable(vm, csr);
+			vm->csr[csr] |= rs1;
+		}
+		break;
+	case RISCV_RV32I_INSTRUCTION_CSRRC:
+	case RISCV_RV32I_INSTRUCTION_CSRRCI:
+		vm->regs.x[rd] = vm->csr[csr];
+		if (rs1 != 0) {
+			riskie_csr_writable(vm, csr);
+			vm->csr[csr] &= ~rs1;
+		}
+		break;
+	default:
+		riskie_vm_exception(vm, "illegal system 0x%08x", instr);
 	}
 }
 
