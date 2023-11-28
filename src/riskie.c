@@ -183,7 +183,7 @@ static void	riskie_debug(const char *, ...);
 
 static void	riskie_ht_run(struct hart *);
 static void	riskie_ht_cleanup(struct hart *);
-static void	riskie_ht_init(struct hart *, const char *);
+static void	riskie_ht_init(struct hart *, const char *, u_int16_t);
 static void	riskie_ht_exception(struct hart *, const char *, ...)
 		    __attribute__((noreturn));
 
@@ -268,7 +268,7 @@ main(int argc, char *argv[])
 
 	riskie_trap_signal(SIGINT);
 
-	riskie_ht_init(&ht, argv[0]);
+	riskie_ht_init(&ht, argv[0], 0);
 	riskie_ht_run(&ht);
 	riskie_ht_cleanup(&ht);
 
@@ -490,7 +490,7 @@ riskie_mem_store(struct hart *ht, u_int64_t addr, u_int64_t value, size_t bits)
  * The image is always loaded at 0x0.
  */
 static void
-riskie_ht_init(struct hart *ht, const char *path)
+riskie_ht_init(struct hart *ht, const char *path, u_int16_t hid)
 {
 	int			fd;
 	struct stat		st;
@@ -520,6 +520,8 @@ riskie_ht_init(struct hart *ht, const char *path)
 		errx(1, "failed to read, only got %zd/%zd", ret, st.st_size);
 
 	ht->regs.x[2] = VM_MEM_SIZE;
+
+	ht->csr[RISCV_CSR_RO_HART_ID] = hid;
 	ht->csr[RISCV_CSR_RO_VENDOR_ID] = 0x20231021;
 
 	close(fd);
