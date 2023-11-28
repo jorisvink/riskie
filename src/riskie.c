@@ -162,9 +162,9 @@
 #define RISCV_RV64I_INSTRUCTION_SUBW		0x20
 
 /*
- * The RISC-V vm.
+ * A RISC-V hart.
  */
-struct vm {
+struct hart {
 	/* Note: memory LOADS are always 64-bit.  */
 	u_int8_t		*mem;
 
@@ -180,55 +180,55 @@ static void	riskie_sig_handler(int);
 static void	riskie_trap_signal(int);
 static void	riskie_debug(const char *, ...);
 
-static void	riskie_vm_run(struct vm *);
-static void	riskie_vm_cleanup(struct vm *);
-static void	riskie_vm_init(struct vm *, const char *);
-static void	riskie_vm_exception(struct vm *, const char *, ...)
+static void	riskie_ht_run(struct hart *);
+static void	riskie_ht_cleanup(struct hart *);
+static void	riskie_ht_init(struct hart *, const char *);
+static void	riskie_ht_exception(struct hart *, const char *, ...)
 		    __attribute__((noreturn));
 
-static void		riskie_validate_pc(struct vm *);
-static u_int16_t	riskie_validate_csr(struct vm *, u_int16_t);
-static u_int8_t		riskie_validate_register(struct vm *, u_int8_t);
-static void		riskie_validate_mem_access(struct vm *,
+static void		riskie_validate_pc(struct hart *);
+static u_int16_t	riskie_validate_csr(struct hart *, u_int16_t);
+static u_int8_t		riskie_validate_register(struct hart *, u_int8_t);
+static void		riskie_validate_mem_access(struct hart *,
 			    u_int64_t, size_t);
 
-static void		riskie_next_instruction(struct vm *);
+static void		riskie_next_instruction(struct hart *);
 static u_int64_t	riskie_sign_extend(u_int32_t, u_int8_t);
-static void		riskie_csr_writable(struct vm *, u_int16_t);
+static void		riskie_csr_writable(struct hart *, u_int16_t);
 
-static u_int8_t		riskie_mem_fetch8(struct vm *, u_int64_t);
-static u_int16_t	riskie_mem_fetch16(struct vm *, u_int64_t);
-static u_int32_t	riskie_mem_fetch32(struct vm *, u_int64_t);
-static u_int64_t	riskie_mem_fetch64(struct vm *, u_int64_t);
-static u_int64_t	riskie_mem_fetch(struct vm *, u_int64_t, u_int16_t);
+static u_int8_t		riskie_mem_fetch8(struct hart *, u_int64_t);
+static u_int16_t	riskie_mem_fetch16(struct hart *, u_int64_t);
+static u_int32_t	riskie_mem_fetch32(struct hart *, u_int64_t);
+static u_int64_t	riskie_mem_fetch64(struct hart *, u_int64_t);
+static u_int64_t	riskie_mem_fetch(struct hart *, u_int64_t, u_int16_t);
 
-static void	riskie_mem_store8(struct vm *, u_int64_t, u_int64_t);
-static void	riskie_mem_store16(struct vm *, u_int64_t, u_int64_t);
-static void	riskie_mem_store32(struct vm *, u_int64_t, u_int64_t);
-static void	riskie_mem_store64(struct vm *, u_int64_t, u_int64_t);
-static void	riskie_mem_store(struct vm *, u_int64_t, u_int64_t, size_t);
+static void	riskie_mem_store8(struct hart *, u_int64_t, u_int64_t);
+static void	riskie_mem_store16(struct hart *, u_int64_t, u_int64_t);
+static void	riskie_mem_store32(struct hart *, u_int64_t, u_int64_t);
+static void	riskie_mem_store64(struct hart *, u_int64_t, u_int64_t);
+static void	riskie_mem_store(struct hart *, u_int64_t, u_int64_t, size_t);
 
-static u_int8_t		riskie_instr_rd(struct vm *, u_int32_t);
-static u_int8_t		riskie_instr_rs1(struct vm *, u_int32_t);
-static u_int8_t		riskie_instr_rs2(struct vm *, u_int32_t);
-static u_int8_t		riskie_instr_shamt(struct vm *, u_int32_t);
-static u_int64_t	riskie_instr_imm_i(struct vm *, u_int32_t);
-static u_int64_t	riskie_instr_imm_j(struct vm *, u_int32_t);
-static u_int64_t	riskie_instr_imm_s(struct vm *, u_int32_t);
-static u_int64_t	riskie_instr_imm_u(struct vm *, u_int32_t);
+static u_int8_t		riskie_instr_rd(struct hart *, u_int32_t);
+static u_int8_t		riskie_instr_rs1(struct hart *, u_int32_t);
+static u_int8_t		riskie_instr_rs2(struct hart *, u_int32_t);
+static u_int8_t		riskie_instr_shamt(struct hart *, u_int32_t);
+static u_int64_t	riskie_instr_imm_i(struct hart *, u_int32_t);
+static u_int64_t	riskie_instr_imm_j(struct hart *, u_int32_t);
+static u_int64_t	riskie_instr_imm_s(struct hart *, u_int32_t);
+static u_int64_t	riskie_instr_imm_u(struct hart *, u_int32_t);
 
-static void	riskie_opcode_lui(struct vm *, u_int32_t);
-static void	riskie_opcode_jal(struct vm *, u_int32_t);
-static void	riskie_opcode_jalr(struct vm *, u_int32_t);
-static void	riskie_opcode_load(struct vm *, u_int32_t);
-static void	riskie_opcode_store(struct vm *, u_int32_t);
-static void	riskie_opcode_auipc(struct vm *, u_int32_t);
-static void	riskie_opcode_system(struct vm *, u_int32_t);
-static void	riskie_opcode_b_type(struct vm *, u_int32_t);
-static void	riskie_opcode_r_type_32(struct vm *, u_int32_t);
-static void	riskie_opcode_r_type_64(struct vm *, u_int32_t);
-static void	riskie_opcode_i_type_32(struct vm *, u_int32_t);
-static void	riskie_opcode_i_type_64(struct vm *, u_int32_t);
+static void	riskie_opcode_lui(struct hart *, u_int32_t);
+static void	riskie_opcode_jal(struct hart *, u_int32_t);
+static void	riskie_opcode_jalr(struct hart *, u_int32_t);
+static void	riskie_opcode_load(struct hart *, u_int32_t);
+static void	riskie_opcode_store(struct hart *, u_int32_t);
+static void	riskie_opcode_auipc(struct hart *, u_int32_t);
+static void	riskie_opcode_system(struct hart *, u_int32_t);
+static void	riskie_opcode_b_type(struct hart *, u_int32_t);
+static void	riskie_opcode_r_type_32(struct hart *, u_int32_t);
+static void	riskie_opcode_r_type_64(struct hart *, u_int32_t);
+static void	riskie_opcode_i_type_32(struct hart *, u_int32_t);
+static void	riskie_opcode_i_type_64(struct hart *, u_int32_t);
 
 /* Last received signal. */
 static volatile sig_atomic_t	sig_recv = -1;
@@ -247,7 +247,7 @@ int
 main(int argc, char *argv[])
 {
 	int		ch;
-	struct vm	vm;
+	struct hart	ht;
 
 	while ((ch = getopt(argc, argv, "d")) != -1) {
 		switch (ch) {
@@ -267,9 +267,9 @@ main(int argc, char *argv[])
 
 	riskie_trap_signal(SIGINT);
 
-	riskie_vm_init(&vm, argv[0]);
-	riskie_vm_run(&vm);
-	riskie_vm_cleanup(&vm);
+	riskie_ht_init(&ht, argv[0]);
+	riskie_ht_run(&ht);
+	riskie_ht_cleanup(&ht);
 
 	return (0);
 }
@@ -323,49 +323,49 @@ riskie_debug(const char *fmt, ...)
  * Fetch 8 bits from the given address in our memory and return it.
  */
 static u_int8_t
-riskie_mem_fetch8(struct vm *vm, u_int64_t addr)
+riskie_mem_fetch8(struct hart *ht, u_int64_t addr)
 {
-	return ((u_int8_t)riskie_mem_fetch64(vm, addr));
+	return ((u_int8_t)riskie_mem_fetch64(ht, addr));
 }
 
 /*
  * Fetch 16 bits from the given address in our memory and return it.
  */
 static u_int16_t
-riskie_mem_fetch16(struct vm *vm, u_int64_t addr)
+riskie_mem_fetch16(struct hart *ht, u_int64_t addr)
 {
-	return ((u_int16_t)riskie_mem_fetch64(vm, addr));
+	return ((u_int16_t)riskie_mem_fetch64(ht, addr));
 }
 
 /*
  * Fetch 32 bits from the given address in our memory and return it.
  */
 static u_int32_t
-riskie_mem_fetch32(struct vm *vm, u_int64_t addr)
+riskie_mem_fetch32(struct hart *ht, u_int64_t addr)
 {
-	return ((u_int32_t)riskie_mem_fetch64(vm, addr));
+	return ((u_int32_t)riskie_mem_fetch64(ht, addr));
 }
 
 /*
  * Fetch 64 bits from address in our memory and return it.
  */
 static u_int64_t
-riskie_mem_fetch64(struct vm *vm, u_int64_t addr)
+riskie_mem_fetch64(struct hart *ht, u_int64_t addr)
 {
 	u_int64_t	v;
 
-	PRECOND(vm != NULL);
+	PRECOND(ht != NULL);
 
-	riskie_validate_mem_access(vm, addr, 8);
+	riskie_validate_mem_access(ht, addr, 8);
 
-	v = (u_int64_t)vm->mem[addr] |
-	    (u_int64_t)vm->mem[addr + 1] << 8 |
-	    (u_int64_t)vm->mem[addr + 2] << 16 |
-	    (u_int64_t)vm->mem[addr + 3] << 24 |
-	    (u_int64_t)vm->mem[addr + 4] << 32 |
-	    (u_int64_t)vm->mem[addr + 5] << 40 |
-	    (u_int64_t)vm->mem[addr + 6] << 48 |
-	    (u_int64_t)vm->mem[addr + 7] << 56;
+	v = (u_int64_t)ht->mem[addr] |
+	    (u_int64_t)ht->mem[addr + 1] << 8 |
+	    (u_int64_t)ht->mem[addr + 2] << 16 |
+	    (u_int64_t)ht->mem[addr + 3] << 24 |
+	    (u_int64_t)ht->mem[addr + 4] << 32 |
+	    (u_int64_t)ht->mem[addr + 5] << 40 |
+	    (u_int64_t)ht->mem[addr + 6] << 48 |
+	    (u_int64_t)ht->mem[addr + 7] << 56;
 
 	return (v);
 }
@@ -377,27 +377,27 @@ riskie_mem_fetch64(struct vm *vm, u_int64_t addr)
  * called for each type.
  */
 static u_int64_t
-riskie_mem_fetch(struct vm *vm, u_int64_t addr, u_int16_t bits)
+riskie_mem_fetch(struct hart *ht, u_int64_t addr, u_int16_t bits)
 {
 	u_int64_t	v;
 
-	PRECOND(vm != NULL);
+	PRECOND(ht != NULL);
 
 	switch (bits) {
 	case 8:
-		v = riskie_mem_fetch8(vm, addr);
+		v = riskie_mem_fetch8(ht, addr);
 		break;
 	case 16:
-		v = riskie_mem_fetch16(vm, addr);
+		v = riskie_mem_fetch16(ht, addr);
 		break;
 	case 32:
-		v = riskie_mem_fetch32(vm, addr);
+		v = riskie_mem_fetch32(ht, addr);
 		break;
 	case 64:
-		v = riskie_mem_fetch64(vm, addr);
+		v = riskie_mem_fetch64(ht, addr);
 		break;
 	default:
-		riskie_vm_exception(vm, "%s: unknown bits %u", __func__, bits);
+		riskie_ht_exception(ht, "%s: unknown bits %u", __func__, bits);
 	}
 
 	return (v);
@@ -407,80 +407,80 @@ riskie_mem_fetch(struct vm *vm, u_int64_t addr, u_int16_t bits)
  * Store 8 bits at the given address.
  */
 static void
-riskie_mem_store8(struct vm *vm, u_int64_t addr, u_int64_t value)
+riskie_mem_store8(struct hart *ht, u_int64_t addr, u_int64_t value)
 {
-	riskie_validate_mem_access(vm, addr, 1);
+	riskie_validate_mem_access(ht, addr, 1);
 
-	vm->mem[addr] = (u_int8_t)(value & 0xff);
+	ht->mem[addr] = (u_int8_t)(value & 0xff);
 }
 
 /*
  * Store 16 bits at the given address.
  */
 static void
-riskie_mem_store16(struct vm *vm, u_int64_t addr, u_int64_t value)
+riskie_mem_store16(struct hart *ht, u_int64_t addr, u_int64_t value)
 {
-	riskie_validate_mem_access(vm, addr, 2);
+	riskie_validate_mem_access(ht, addr, 2);
 
-	vm->mem[addr] = (u_int8_t)(value & 0xff);
-	vm->mem[addr + 1] = (u_int8_t)((value >> 8) & 0xff);
+	ht->mem[addr] = (u_int8_t)(value & 0xff);
+	ht->mem[addr + 1] = (u_int8_t)((value >> 8) & 0xff);
 }
 
 /*
  * Store 32 bits at the given address.
  */
 static void
-riskie_mem_store32(struct vm *vm, u_int64_t addr, u_int64_t value)
+riskie_mem_store32(struct hart *ht, u_int64_t addr, u_int64_t value)
 {
-	riskie_validate_mem_access(vm, addr, 4);
+	riskie_validate_mem_access(ht, addr, 4);
 
-	vm->mem[addr] = (u_int8_t)(value & 0xff);
-	vm->mem[addr + 1] = (u_int8_t)((value >> 8) & 0xff);
-	vm->mem[addr + 2] = (u_int8_t)((value >> 16) & 0xff);
-	vm->mem[addr + 3] = (u_int8_t)((value >> 24) & 0xff);
+	ht->mem[addr] = (u_int8_t)(value & 0xff);
+	ht->mem[addr + 1] = (u_int8_t)((value >> 8) & 0xff);
+	ht->mem[addr + 2] = (u_int8_t)((value >> 16) & 0xff);
+	ht->mem[addr + 3] = (u_int8_t)((value >> 24) & 0xff);
 }
 
 /*
  * Store 64 bits at the given address.
  */
 static void
-riskie_mem_store64(struct vm *vm, u_int64_t addr, u_int64_t value)
+riskie_mem_store64(struct hart *ht, u_int64_t addr, u_int64_t value)
 {
-	riskie_validate_mem_access(vm, addr, 8);
+	riskie_validate_mem_access(ht, addr, 8);
 
-	vm->mem[addr] = (u_int8_t)(value & 0xff);
-	vm->mem[addr + 1] = (u_int8_t)((value >> 8) & 0xff);
-	vm->mem[addr + 2] = (u_int8_t)((value >> 16) & 0xff);
-	vm->mem[addr + 3] = (u_int8_t)((value >> 24) & 0xff);
-	vm->mem[addr + 4] = (u_int8_t)((value >> 32) & 0xff);
-	vm->mem[addr + 5] = (u_int8_t)((value >> 40) & 0xff);
-	vm->mem[addr + 6] = (u_int8_t)((value >> 48) & 0xff);
-	vm->mem[addr + 7] = (u_int8_t)((value >> 56) & 0xff);
+	ht->mem[addr] = (u_int8_t)(value & 0xff);
+	ht->mem[addr + 1] = (u_int8_t)((value >> 8) & 0xff);
+	ht->mem[addr + 2] = (u_int8_t)((value >> 16) & 0xff);
+	ht->mem[addr + 3] = (u_int8_t)((value >> 24) & 0xff);
+	ht->mem[addr + 4] = (u_int8_t)((value >> 32) & 0xff);
+	ht->mem[addr + 5] = (u_int8_t)((value >> 40) & 0xff);
+	ht->mem[addr + 6] = (u_int8_t)((value >> 48) & 0xff);
+	ht->mem[addr + 7] = (u_int8_t)((value >> 56) & 0xff);
 }
 
 /*
  * Store the given amount of bits into memory.
  */
 static void
-riskie_mem_store(struct vm *vm, u_int64_t addr, u_int64_t value, size_t bits)
+riskie_mem_store(struct hart *ht, u_int64_t addr, u_int64_t value, size_t bits)
 {
-	PRECOND(vm != NULL);
+	PRECOND(ht != NULL);
 
 	switch (bits) {
 	case 8:
-		riskie_mem_store8(vm, addr, value);
+		riskie_mem_store8(ht, addr, value);
 		break;
 	case 16:
-		riskie_mem_store16(vm, addr, value);
+		riskie_mem_store16(ht, addr, value);
 		break;
 	case 32:
-		riskie_mem_store32(vm, addr, value);
+		riskie_mem_store32(ht, addr, value);
 		break;
 	case 64:
-		riskie_mem_store64(vm, addr, value);
+		riskie_mem_store64(ht, addr, value);
 		break;
 	default:
-		riskie_vm_exception(vm, "%s: unknown bits %u", __func__, bits);
+		riskie_ht_exception(ht, "%s: unknown bits %u", __func__, bits);
 	}
 }
 
@@ -489,18 +489,18 @@ riskie_mem_store(struct vm *vm, u_int64_t addr, u_int64_t value, size_t bits)
  * The image is always loaded at 0x0.
  */
 static void
-riskie_vm_init(struct vm *vm, const char *path)
+riskie_ht_init(struct hart *ht, const char *path)
 {
 	int			fd;
 	struct stat		st;
 	ssize_t			ret;
 
-	PRECOND(vm != NULL);
+	PRECOND(ht != NULL);
 	PRECOND(path != NULL);
 
-	memset(vm, 0, sizeof(*vm));
+	memset(ht, 0, sizeof(*ht));
 
-	if ((vm->mem = calloc(1, VM_MEM_SIZE)) == NULL)
+	if ((ht->mem = calloc(1, VM_MEM_SIZE)) == NULL)
 		err(1, "calloc");
 
 	if ((fd = open(path, O_RDONLY)) == -1)
@@ -512,14 +512,14 @@ riskie_vm_init(struct vm *vm, const char *path)
 	if (st.st_size > VM_MEM_SIZE)
 		errx(1, "image doesn't fit in memory");
 
-	if ((ret = read(fd, vm->mem, st.st_size)) == -1)
+	if ((ret = read(fd, ht->mem, st.st_size)) == -1)
 		err(1, "read");
 
 	if (ret != st.st_size)
 		errx(1, "failed to read, only got %zd/%zd", ret, st.st_size);
 
-	vm->regs.x[2] = VM_MEM_SIZE;
-	vm->csr[RISCV_CSR_RO_VENDOR_ID] = 0x20231021;
+	ht->regs.x[2] = VM_MEM_SIZE;
+	ht->csr[RISCV_CSR_RO_VENDOR_ID] = 0x20231021;
 
 	close(fd);
 
@@ -530,25 +530,25 @@ riskie_vm_init(struct vm *vm, const char *path)
  * Cleanup the VM data and all its resources.
  */
 static void
-riskie_vm_cleanup(struct vm *vm)
+riskie_ht_cleanup(struct hart *ht)
 {
-	PRECOND(vm != NULL);
+	PRECOND(ht != NULL);
 
-	free(vm->mem);
+	free(ht->mem);
 }
 
 /*
  * An exception occurred, we log it, dump all registers and exit.
  */
 static void
-riskie_vm_exception(struct vm *vm, const char *fmt, ...)
+riskie_ht_exception(struct hart *ht, const char *fmt, ...)
 {
 	int		idx;
 	va_list		args;
 
-	PRECOND(vm != NULL);
+	PRECOND(ht != NULL);
 
-	fprintf(stderr, "vm exception: ");
+	fprintf(stderr, "ht exception: ");
 
 	va_start(args, fmt);
 	vfprintf(stderr, fmt, args);
@@ -556,11 +556,11 @@ riskie_vm_exception(struct vm *vm, const char *fmt, ...)
 
 	fprintf(stderr, "\n");
 
-	fprintf(stderr, "pc=0x%" PRIx64 "\n", vm->regs.pc - sizeof(u_int32_t));
+	fprintf(stderr, "pc=0x%" PRIx64 "\n", ht->regs.pc - sizeof(u_int32_t));
 	for (idx = 0; idx < RISCV_REGISTER_COUNT; idx++)
-		fprintf(stderr, "x%d=0x%" PRIx64 "\n", idx, vm->regs.x[idx]);
+		fprintf(stderr, "x%d=0x%" PRIx64 "\n", idx, ht->regs.x[idx]);
 
-	riskie_vm_cleanup(vm);
+	riskie_ht_cleanup(ht);
 
 	exit(1);
 }
@@ -569,11 +569,11 @@ riskie_vm_exception(struct vm *vm, const char *fmt, ...)
  * Run the VM by executing instructions.
  */
 static void
-riskie_vm_run(struct vm *vm)
+riskie_ht_run(struct hart *ht)
 {
 	int		running;
 
-	PRECOND(vm != NULL);
+	PRECOND(ht != NULL);
 
 	running = 1;
 
@@ -587,38 +587,38 @@ riskie_vm_run(struct vm *vm)
 			sig_recv = -1;
 		}
 
-		riskie_next_instruction(vm);
+		riskie_next_instruction(ht);
 	}
 
-	riskie_vm_exception(vm, "interrupted by user");
+	riskie_ht_exception(ht, "interrupted by user");
 }
 
 /*
  * Validate the current value in the PC register.
  */
 static void
-riskie_validate_pc(struct vm *vm)
+riskie_validate_pc(struct hart *ht)
 {
-	PRECOND(vm != NULL);
+	PRECOND(ht != NULL);
 
-	if ((vm->regs.pc % 4) != 0)
-		riskie_vm_exception(vm, "unaligned instruction access");
+	if ((ht->regs.pc % 4) != 0)
+		riskie_ht_exception(ht, "unaligned instruction access");
 
-	if (vm->regs.pc + sizeof(u_int32_t) < vm->regs.pc)
-		riskie_vm_exception(vm, "pc wrap around");
+	if (ht->regs.pc + sizeof(u_int32_t) < ht->regs.pc)
+		riskie_ht_exception(ht, "pc wrap around");
 
-	if (vm->regs.pc + sizeof(u_int32_t) > VM_MEM_SIZE)
-		riskie_vm_exception(vm, "pc out of bounds");
+	if (ht->regs.pc + sizeof(u_int32_t) > VM_MEM_SIZE)
+		riskie_ht_exception(ht, "pc out of bounds");
 }
 
 /*
  * Validate the given CSR to be a valid one.
  */
 static u_int16_t
-riskie_validate_csr(struct vm *vm, u_int16_t csr)
+riskie_validate_csr(struct hart *ht, u_int16_t csr)
 {
 	if (csr >= RISCV_CSR_COUNT)
-		riskie_vm_exception(vm, "csr out of bounds (%u)", csr);
+		riskie_ht_exception(ht, "csr out of bounds (%u)", csr);
 
 	return (csr);
 }
@@ -627,12 +627,12 @@ riskie_validate_csr(struct vm *vm, u_int16_t csr)
  * Validate the given register to be a valid one.
  */
 static u_int8_t
-riskie_validate_register(struct vm *vm, u_int8_t reg)
+riskie_validate_register(struct hart *ht, u_int8_t reg)
 {
-	PRECOND(vm != NULL);
+	PRECOND(ht != NULL);
 
 	if (reg >= RISCV_REGISTER_COUNT)
-		riskie_vm_exception(vm, "reg out of bounds (%u)", reg);
+		riskie_ht_exception(ht, "reg out of bounds (%u)", reg);
 
 	return (reg);
 }
@@ -641,20 +641,20 @@ riskie_validate_register(struct vm *vm, u_int8_t reg)
  * Check if we can access memory at addr for the given amount of bytes.
  */
 static void
-riskie_validate_mem_access(struct vm *vm, u_int64_t addr, size_t bytes)
+riskie_validate_mem_access(struct hart *ht, u_int64_t addr, size_t bytes)
 {
-	PRECOND(vm != NULL);
+	PRECOND(ht != NULL);
 
 	if (addr >= VM_MEM_SIZE) {
-		riskie_vm_exception(vm,
+		riskie_ht_exception(ht,
 		    "memory access at 0x%" PRIx64 " out of bounds", addr);
 	}
 
 	if (addr + bytes < addr)
-		riskie_vm_exception(vm, "memory access overflow");
+		riskie_ht_exception(ht, "memory access overflow");
 
 	if (addr + bytes > VM_MEM_SIZE) {
-		riskie_vm_exception(vm,
+		riskie_ht_exception(ht,
 		    "memory access at 0x%" PRIx64 " out of bounds", addr);
 	}
 }
@@ -685,9 +685,9 @@ riskie_sign_extend(u_int32_t value, u_int8_t bit)
  * For RV64I implementations these are bits 25..20.
  */
 static u_int8_t
-riskie_instr_shamt(struct vm *vm, u_int32_t instr)
+riskie_instr_shamt(struct hart *ht, u_int32_t instr)
 {
-	PRECOND(vm != NULL);
+	PRECOND(ht != NULL);
 
 	return ((instr >> 20) & 0x3f);
 }
@@ -696,15 +696,15 @@ riskie_instr_shamt(struct vm *vm, u_int32_t instr)
  * Extract the "csr" part of the given instruction. (bits 31 .. 20)
  */
 static u_int16_t
-riskie_instr_csr(struct vm *vm, u_int32_t instr)
+riskie_instr_csr(struct hart *ht, u_int32_t instr)
 {
 	u_int16_t	csr;
 
-	PRECOND(vm != NULL);
+	PRECOND(ht != NULL);
 
 	csr = (instr >> 20) & 0xfff;
 
-	return (riskie_validate_csr(vm, csr));
+	return (riskie_validate_csr(ht, csr));
 }
 
 /*
@@ -712,11 +712,11 @@ riskie_instr_csr(struct vm *vm, u_int32_t instr)
  * Present in R, I, S, U and J instructions.
  */
 static u_int8_t
-riskie_instr_rd(struct vm *vm, u_int32_t instr)
+riskie_instr_rd(struct hart *ht, u_int32_t instr)
 {
-	PRECOND(vm != NULL);
+	PRECOND(ht != NULL);
 
-	return (riskie_validate_register(vm, (instr >> 7) & 0x1f));
+	return (riskie_validate_register(ht, (instr >> 7) & 0x1f));
 }
 
 /*
@@ -724,11 +724,11 @@ riskie_instr_rd(struct vm *vm, u_int32_t instr)
  * Present in R, I, S and B instructions.
  */
 static u_int8_t
-riskie_instr_rs1(struct vm *vm, u_int32_t instr)
+riskie_instr_rs1(struct hart *ht, u_int32_t instr)
 {
-	PRECOND(vm != NULL);
+	PRECOND(ht != NULL);
 
-	return (riskie_validate_register(vm, (instr >> 15) & 0x1f));
+	return (riskie_validate_register(ht, (instr >> 15) & 0x1f));
 }
 
 /*
@@ -736,11 +736,11 @@ riskie_instr_rs1(struct vm *vm, u_int32_t instr)
  * Present in R, S and B instructions.
  */
 static u_int8_t
-riskie_instr_rs2(struct vm *vm, u_int32_t instr)
+riskie_instr_rs2(struct hart *ht, u_int32_t instr)
 {
-	PRECOND(vm != NULL);
+	PRECOND(ht != NULL);
 
-	return (riskie_validate_register(vm, (instr >> 20) & 0x1f));
+	return (riskie_validate_register(ht, (instr >> 20) & 0x1f));
 }
 
 /*
@@ -748,11 +748,11 @@ riskie_instr_rs2(struct vm *vm, u_int32_t instr)
  * imm[12|10:5|4:1|11] = inst[31|30:25|11:8|7]
  */
 static u_int64_t
-riskie_instr_imm_b(struct vm *vm, u_int32_t instr)
+riskie_instr_imm_b(struct hart *ht, u_int32_t instr)
 {
 	u_int32_t		imm;
 
-	PRECOND(vm != NULL);
+	PRECOND(ht != NULL);
 
 	imm = ((instr >> 31) & 0x01) << 12;
 	imm |= ((instr >> 7) & 0x01) << 11;
@@ -775,9 +775,9 @@ riskie_instr_imm_b(struct vm *vm, u_int32_t instr)
  * imm[31:12] = inst[31:12]
  */
 static u_int64_t
-riskie_instr_imm_u(struct vm *vm, u_int32_t instr)
+riskie_instr_imm_u(struct hart *ht, u_int32_t instr)
 {
-	PRECOND(vm != NULL);
+	PRECOND(ht != NULL);
 
 	return (riskie_sign_extend(instr & 0xfffff000, 31));
 }
@@ -787,9 +787,9 @@ riskie_instr_imm_u(struct vm *vm, u_int32_t instr)
  * imm[11:0] = inst[31:20]
  */
 static u_int64_t
-riskie_instr_imm_i(struct vm *vm, u_int32_t instr)
+riskie_instr_imm_i(struct hart *ht, u_int32_t instr)
 {
-	PRECOND(vm != NULL);
+	PRECOND(ht != NULL);
 
 	return (riskie_sign_extend(instr >> 20, 11));
 }
@@ -799,12 +799,12 @@ riskie_instr_imm_i(struct vm *vm, u_int32_t instr)
  * imm[20|10:1|11|19:12] = inst[31|30:21|20|19:12]
  */
 static u_int64_t
-riskie_instr_imm_j(struct vm *vm, u_int32_t instr)
+riskie_instr_imm_j(struct hart *ht, u_int32_t instr)
 {
 	size_t			idx;
 	u_int32_t		imm;
 
-	PRECOND(vm != NULL);
+	PRECOND(ht != NULL);
 
 	imm = ((instr >> 31) & 0x01) << 20;
 
@@ -824,11 +824,11 @@ riskie_instr_imm_j(struct vm *vm, u_int32_t instr)
  * imm[11:5] = inst[31:25], imm[4:0] = inst[11:7]
  */
 static u_int64_t
-riskie_instr_imm_s(struct vm *vm, u_int32_t instr)
+riskie_instr_imm_s(struct hart *ht, u_int32_t instr)
 {
 	u_int32_t		imm;
 
-	PRECOND(vm != NULL);
+	PRECOND(ht != NULL);
 
 	imm = ((instr & 0xfe000000) >> 20) | ((instr >> 7) & 0x1f);
 
@@ -839,71 +839,71 @@ riskie_instr_imm_s(struct vm *vm, u_int32_t instr)
  * Causes an exception if the given CSR is not writable.
  */
 static void
-riskie_csr_writable(struct vm *vm, u_int16_t csr)
+riskie_csr_writable(struct hart *ht, u_int16_t csr)
 {
-	PRECOND(vm != NULL);
+	PRECOND(ht != NULL);
 
 	if (csr >= RISCV_CSR_RO_VENDOR_ID && csr <= RISCV_CSR_RO_HART_ID)
-		riskie_vm_exception(vm, "attempted write to csr %u", csr);
+		riskie_ht_exception(ht, "attempted write to csr %u", csr);
 }
 
 /*
  * Fetch the next instruction, decode it and execute it.
  */
 static void
-riskie_next_instruction(struct vm *vm)
+riskie_next_instruction(struct hart *ht)
 {
 	u_int32_t	instr;
 	u_int8_t	opcode;
 
-	PRECOND(vm != NULL);
+	PRECOND(ht != NULL);
 
-	riskie_validate_pc(vm);
-	memcpy(&instr, &vm->mem[vm->regs.pc], sizeof(instr));
-	vm->regs.pc += sizeof(instr);
+	riskie_validate_pc(ht);
+	memcpy(&instr, &ht->mem[ht->regs.pc], sizeof(instr));
+	ht->regs.pc += sizeof(instr);
 
-	vm->regs.x[0] = 0;
+	ht->regs.x[0] = 0;
 	opcode = instr & 0x7f;
 
 	switch (opcode) {
 	case RISCV_RV32I_OPCODE_LOAD:
-		riskie_opcode_load(vm, instr);
+		riskie_opcode_load(ht, instr);
 		break;
 	case RISCV_RV32I_OPCODE_STORE:
-		riskie_opcode_store(vm, instr);
+		riskie_opcode_store(ht, instr);
 		break;
 	case RISCV_RV32I_OPCODE_SYSTEM:
-		riskie_opcode_system(vm, instr);
+		riskie_opcode_system(ht, instr);
 		break;
 	case RISCV_RV32I_OPCODE_B_TYPE:
-		riskie_opcode_b_type(vm, instr);
+		riskie_opcode_b_type(ht, instr);
 		break;
 	case RISCV_RV32I_OPCODE_I_TYPE:
-		riskie_opcode_i_type_32(vm, instr);
+		riskie_opcode_i_type_32(ht, instr);
 		break;
 	case RISCV_RV64I_OPCODE_I_TYPE:
-		riskie_opcode_i_type_64(vm, instr);
+		riskie_opcode_i_type_64(ht, instr);
 		break;
 	case RISCV_RV32I_OPCODE_R_TYPE:
-		riskie_opcode_r_type_32(vm, instr);
+		riskie_opcode_r_type_32(ht, instr);
 		break;
 	case RISCV_RV64I_OPCODE_R_TYPE:
-		riskie_opcode_r_type_64(vm, instr);
+		riskie_opcode_r_type_64(ht, instr);
 		break;
 	case RISCV_RV32I_INSTRUCTION_AUIPC:
-		riskie_opcode_auipc(vm, instr);
+		riskie_opcode_auipc(ht, instr);
 		break;
 	case RISCV_RV32I_INSTRUCTION_LUI:
-		riskie_opcode_lui(vm, instr);
+		riskie_opcode_lui(ht, instr);
 		break;
 	case RISCV_RV32I_INSTRUCTION_JAL:
-		riskie_opcode_jal(vm, instr);
+		riskie_opcode_jal(ht, instr);
 		break;
 	case RISCV_RV32I_INSTRUCTION_JALR:
-		riskie_opcode_jalr(vm, instr);
+		riskie_opcode_jalr(ht, instr);
 		break;
 	default:
-		riskie_vm_exception(vm, "illegal instruction 0x%08x", instr);
+		riskie_ht_exception(ht, "illegal instruction 0x%08x", instr);
 	}
 }
 
@@ -912,57 +912,57 @@ riskie_next_instruction(struct vm *vm)
  * one and execute it.
  */
 static void
-riskie_opcode_load(struct vm *vm, u_int32_t instr)
+riskie_opcode_load(struct hart *ht, u_int32_t instr)
 {
 	u_int8_t	rd, rs1;
 	u_int64_t	off, addr;
 	u_int32_t	funct3, v32;
 
-	PRECOND(vm != NULL);
+	PRECOND(ht != NULL);
 
 	funct3 = (instr >> 12) & 0x7;
 
-	rd = riskie_instr_rd(vm, instr);
-	rs1 = riskie_instr_rs1(vm, instr);
-	off = riskie_instr_imm_i(vm, instr);
+	rd = riskie_instr_rd(ht, instr);
+	rs1 = riskie_instr_rs1(ht, instr);
+	off = riskie_instr_imm_i(ht, instr);
 
-	addr = vm->regs.x[rs1] + (int64_t)off;
+	addr = ht->regs.x[rs1] + (int64_t)off;
 
 	riskie_debug("LOAD, funct3=0x%02x, rd=%u, rs1=%u, addr=0x%" PRIx64 "\n",
 	    funct3, rd, rs1, addr);
 
-	riskie_debug("    <- reg.%u = %" PRIx64 "\n", rs1, vm->regs.x[rs1]);
+	riskie_debug("    <- reg.%u = %" PRIx64 "\n", rs1, ht->regs.x[rs1]);
 
 	switch (funct3) {
 	case RISCV_RV32I_INSTRUCTION_LB:
-		v32 = riskie_mem_fetch(vm, addr, 8);
-		vm->regs.x[rd] = riskie_sign_extend(v32, 7);
+		v32 = riskie_mem_fetch(ht, addr, 8);
+		ht->regs.x[rd] = riskie_sign_extend(v32, 7);
 		break;
 	case RISCV_RV32I_INSTRUCTION_LH:
-		v32 = riskie_mem_fetch(vm, addr, 16);
-		vm->regs.x[rd] = riskie_sign_extend(v32, 15);
+		v32 = riskie_mem_fetch(ht, addr, 16);
+		ht->regs.x[rd] = riskie_sign_extend(v32, 15);
 		break;
 	case RISCV_RV32I_INSTRUCTION_LW:
-		v32 = riskie_mem_fetch(vm, addr, 32);
-		vm->regs.x[rd] = riskie_sign_extend(v32, 31);
+		v32 = riskie_mem_fetch(ht, addr, 32);
+		ht->regs.x[rd] = riskie_sign_extend(v32, 31);
 		break;
 	case RISCV_RV32I_INSTRUCTION_LBU:
-		vm->regs.x[rd] = riskie_mem_fetch(vm, addr, 8);
+		ht->regs.x[rd] = riskie_mem_fetch(ht, addr, 8);
 		break;
 	case RISCV_RV32I_INSTRUCTION_LHU:
-		vm->regs.x[rd] = riskie_mem_fetch(vm, addr, 16);
+		ht->regs.x[rd] = riskie_mem_fetch(ht, addr, 16);
 		break;
 	case RISCV_RV32I_INSTRUCTION_LWU:
-		vm->regs.x[rd] = riskie_mem_fetch(vm, addr, 32);
+		ht->regs.x[rd] = riskie_mem_fetch(ht, addr, 32);
 		break;
 	case RISCV_RV64I_INSTRUCTION_LD:
-		vm->regs.x[rd] = riskie_mem_fetch(vm, addr, 64);
+		ht->regs.x[rd] = riskie_mem_fetch(ht, addr, 64);
 		break;
 	default:
-		riskie_vm_exception(vm, "illegal load 0x%08x", instr);
+		riskie_ht_exception(ht, "illegal load 0x%08x", instr);
 	}
 
-	riskie_debug("    -> reg.%u = %" PRIx64 "\n", rd, vm->regs.x[rd]);
+	riskie_debug("    -> reg.%u = %" PRIx64 "\n", rd, ht->regs.x[rd]);
 }
 
 /*
@@ -970,40 +970,40 @@ riskie_opcode_load(struct vm *vm, u_int32_t instr)
  * one and execute it.
  */
 static void
-riskie_opcode_store(struct vm *vm, u_int32_t instr)
+riskie_opcode_store(struct hart *ht, u_int32_t instr)
 {
 	u_int32_t	funct3;
 	u_int8_t	rs1, rs2;
 	u_int64_t	off, addr;
 
-	PRECOND(vm != NULL);
+	PRECOND(ht != NULL);
 
 	funct3 = (instr >> 12) & 0x7;
 
-	rs1 = riskie_instr_rs1(vm, instr);
-	rs2 = riskie_instr_rs2(vm, instr);
-	off = riskie_instr_imm_s(vm, instr);
+	rs1 = riskie_instr_rs1(ht, instr);
+	rs2 = riskie_instr_rs2(ht, instr);
+	off = riskie_instr_imm_s(ht, instr);
 
-	addr = vm->regs.x[rs1] + (int64_t)off;
+	addr = ht->regs.x[rs1] + (int64_t)off;
 
 	riskie_debug("STORE, funct3=0x%02x, rs1=%u, rs2=%u, "
 	    "addr=0x%" PRIx64 "\n", funct3, rs1, rs2, addr);
 
 	switch (funct3) {
 	case RISCV_RV32I_INSTRUCTION_SB:
-		riskie_mem_store(vm, addr, vm->regs.x[rs2], 8);
+		riskie_mem_store(ht, addr, ht->regs.x[rs2], 8);
 		break;
 	case RISCV_RV32I_INSTRUCTION_SH:
-		riskie_mem_store(vm, addr, vm->regs.x[rs2], 16);
+		riskie_mem_store(ht, addr, ht->regs.x[rs2], 16);
 		break;
 	case RISCV_RV32I_INSTRUCTION_SW:
-		riskie_mem_store(vm, addr, vm->regs.x[rs2], 32);
+		riskie_mem_store(ht, addr, ht->regs.x[rs2], 32);
 		break;
 	case RISCV_RV64I_INSTRUCTION_SD:
-		riskie_mem_store(vm, addr, vm->regs.x[rs2], 64);
+		riskie_mem_store(ht, addr, ht->regs.x[rs2], 64);
 		break;
 	default:
-		riskie_vm_exception(vm, "illegal store 0x%08x", instr);
+		riskie_ht_exception(ht, "illegal store 0x%08x", instr);
 	}
 }
 
@@ -1012,28 +1012,28 @@ riskie_opcode_store(struct vm *vm, u_int32_t instr)
  * correct one.
  */
 static void
-riskie_opcode_system(struct vm *vm, u_int32_t instr)
+riskie_opcode_system(struct hart *ht, u_int32_t instr)
 {
 	u_int16_t	csr;
 	u_int32_t	funct3;
 	u_int8_t	rd, rs1;
 
-	PRECOND(vm != NULL);
+	PRECOND(ht != NULL);
 
 	funct3 = (instr >> 12) & 0x7;
 
-	rd = riskie_instr_rd(vm, instr);
-	rs1 = riskie_instr_rs1(vm, instr);
-	csr = riskie_instr_csr(vm, instr);
+	rd = riskie_instr_rd(ht, instr);
+	rs1 = riskie_instr_rs1(ht, instr);
+	csr = riskie_instr_csr(ht, instr);
 
-	riskie_debug("SYSTEM, funct3=0x%02x, rd=%u, rs1=%u, csr=0x%02x",
+	riskie_debug("SYSTEM, funct3=0x%02x, rd=%u, rs1=%u, csr=0x%02x\n",
 	    funct3, rd, rs1, csr);
 
 	switch (funct3) {
 	case RISCV_RV32I_INSTRUCTION_CSRRW:
 	case RISCV_RV32I_INSTRUCTION_CSRRS:
 	case RISCV_RV32I_INSTRUCTION_CSRRC:
-		rs1 = vm->regs.x[rs1];
+		rs1 = ht->regs.x[rs1];
 		break;
 	case RISCV_RV32I_INSTRUCTION_CSRRWI:
 	case RISCV_RV32I_INSTRUCTION_CSRRSI:
@@ -1052,29 +1052,29 @@ riskie_opcode_system(struct vm *vm, u_int32_t instr)
 		 * This counts as atomic unless we start doing
 		 * multiprocess approaches for the future harts.
 		 */
-		riskie_csr_writable(vm, csr);
+		riskie_csr_writable(ht, csr);
 		if (rd != 0)
-			vm->regs.x[rd] = vm->csr[csr];
-		vm->csr[csr] = rs1;
+			ht->regs.x[rd] = ht->csr[csr];
+		ht->csr[csr] = rs1;
 		break;
 	case RISCV_RV32I_INSTRUCTION_CSRRS:
 	case RISCV_RV32I_INSTRUCTION_CSRRSI:
-		vm->regs.x[rd] = vm->csr[csr];
+		ht->regs.x[rd] = ht->csr[csr];
 		if (rs1 != 0) {
-			riskie_csr_writable(vm, csr);
-			vm->csr[csr] |= rs1;
+			riskie_csr_writable(ht, csr);
+			ht->csr[csr] |= rs1;
 		}
 		break;
 	case RISCV_RV32I_INSTRUCTION_CSRRC:
 	case RISCV_RV32I_INSTRUCTION_CSRRCI:
-		vm->regs.x[rd] = vm->csr[csr];
+		ht->regs.x[rd] = ht->csr[csr];
 		if (rs1 != 0) {
-			riskie_csr_writable(vm, csr);
-			vm->csr[csr] &= ~rs1;
+			riskie_csr_writable(ht, csr);
+			ht->csr[csr] &= ~rs1;
 		}
 		break;
 	default:
-		riskie_vm_exception(vm, "illegal system 0x%08x", instr);
+		riskie_ht_exception(ht, "illegal system 0x%08x", instr);
 	}
 }
 
@@ -1082,20 +1082,20 @@ riskie_opcode_system(struct vm *vm, u_int32_t instr)
  * Control transfer instructions, conditional branches.
  */
 static void
-riskie_opcode_b_type(struct vm *vm, u_int32_t instr)
+riskie_opcode_b_type(struct hart *ht, u_int32_t instr)
 {
 	u_int64_t	imm;
 	int		branch;
 	u_int32_t	funct3;
 	u_int8_t	rs1, rs2;
 
-	PRECOND(vm != NULL);
+	PRECOND(ht != NULL);
 
 	funct3 = (instr >> 12) & 0x7;
 
-	rs1 = riskie_instr_rs1(vm, instr);
-	rs2 = riskie_instr_rs2(vm, instr);
-	imm = riskie_instr_imm_b(vm, instr);
+	rs1 = riskie_instr_rs1(ht, instr);
+	rs2 = riskie_instr_rs2(ht, instr);
+	imm = riskie_instr_imm_b(ht, instr);
 
 	riskie_debug("B-TYPE, funct3=0x%02x, rs1=%u, rs2=%u, "
 	    "imm=0x%" PRIx64 "\n", funct3, rs1, rs2, imm);
@@ -1104,31 +1104,31 @@ riskie_opcode_b_type(struct vm *vm, u_int32_t instr)
 
 	switch (funct3) {
 	case RISCV_RV32I_INSTRUCTION_BEQ:
-		branch = vm->regs.x[rs1] == vm->regs.x[rs2];
+		branch = ht->regs.x[rs1] == ht->regs.x[rs2];
 		break;
 	case RISCV_RV32I_INSTRUCTION_BNE:
-		branch = vm->regs.x[rs1] != vm->regs.x[rs2];
+		branch = ht->regs.x[rs1] != ht->regs.x[rs2];
 		break;
 	case RISCV_RV32I_INSTRUCTION_BLT:
-		branch = (int64_t)vm->regs.x[rs1] < (int64_t)vm->regs.x[rs2];
+		branch = (int64_t)ht->regs.x[rs1] < (int64_t)ht->regs.x[rs2];
 		break;
 	case RISCV_RV32I_INSTRUCTION_BGE:
-		branch = (int64_t)vm->regs.x[rs1] >= (int64_t)vm->regs.x[rs2];
+		branch = (int64_t)ht->regs.x[rs1] >= (int64_t)ht->regs.x[rs2];
 		break;
 	case RISCV_RV32I_INSTRUCTION_BLTU:
-		branch = vm->regs.x[rs1] < vm->regs.x[rs2];
+		branch = ht->regs.x[rs1] < ht->regs.x[rs2];
 		break;
 	case RISCV_RV32I_INSTRUCTION_BGEU:
-		branch = vm->regs.x[rs1] >= vm->regs.x[rs2];
+		branch = ht->regs.x[rs1] >= ht->regs.x[rs2];
 		break;
 	default:
-		riskie_vm_exception(vm, "illegal b-type 0x%08x", instr);
+		riskie_ht_exception(ht, "illegal b-type 0x%08x", instr);
 	}
 
 	if (branch) {
-		vm->regs.pc = (vm->regs.pc - sizeof(instr)) + (int64_t)imm;
-		riskie_validate_pc(vm);
-		riskie_debug("branched to 0x%" PRIx64 "\n", vm->regs.pc);
+		ht->regs.pc = (ht->regs.pc - sizeof(instr)) + (int64_t)imm;
+		riskie_validate_pc(ht);
+		riskie_debug("branched to 0x%" PRIx64 "\n", ht->regs.pc);
 	}
 }
 
@@ -1142,21 +1142,21 @@ riskie_opcode_b_type(struct vm *vm, u_int32_t instr)
  * operate on XLEN bits, and thus 64-bit.
  */
 static void
-riskie_opcode_i_type_32(struct vm *vm, u_int32_t instr)
+riskie_opcode_i_type_32(struct hart *ht, u_int32_t instr)
 {
 	u_int8_t	rd, rs1;
 	u_int64_t	imm, sbit;
 	u_int32_t	funct3, funct7, shamt;
 
-	PRECOND(vm != NULL);
+	PRECOND(ht != NULL);
 
 	funct3 = (instr >> 12) & 0x7;
 	funct7 = (instr >> 25) & 0x7f;
 
-	rd = riskie_instr_rd(vm, instr);
-	rs1 = riskie_instr_rs1(vm, instr);
-	imm = riskie_instr_imm_i(vm, instr);
-	shamt = riskie_instr_shamt(vm, instr);
+	rd = riskie_instr_rd(ht, instr);
+	rs1 = riskie_instr_rs1(ht, instr);
+	imm = riskie_instr_imm_i(ht, instr);
+	shamt = riskie_instr_shamt(ht, instr);
 
 	riskie_debug("I-TYPE-RV32I, funct3=0x%02x, funct7=0x%02x, "
 	    "rd=%u, rs1=%u, imm=%" PRId64 "\n", funct3, funct7, rd,
@@ -1164,51 +1164,51 @@ riskie_opcode_i_type_32(struct vm *vm, u_int32_t instr)
 
 	switch (funct3) {
 	case RISCV_RV32I_INSTRUCTION_ADDI:
-		vm->regs.x[rd] = vm->regs.x[rs1] + (int64_t)imm;
+		ht->regs.x[rd] = ht->regs.x[rs1] + (int64_t)imm;
 		break;
 	case RISCV_RV32I_INSTRUCTION_XORI:
-		vm->regs.x[rd] = vm->regs.x[rs1] ^ imm;
+		ht->regs.x[rd] = ht->regs.x[rs1] ^ imm;
 		break;
 	case RISCV_RV32I_INSTRUCTION_ANDI:
-		vm->regs.x[rd] = vm->regs.x[rs1] & imm;
+		ht->regs.x[rd] = ht->regs.x[rs1] & imm;
 		break;
 	case RISCV_RV32I_INSTRUCTION_ORI:
-		vm->regs.x[rd] = vm->regs.x[rs1] | imm;
+		ht->regs.x[rd] = ht->regs.x[rs1] | imm;
 		break;
 	case RISCV_RV32I_INSTRUCTION_SLTI:
-		if ((int64_t)vm->regs.x[rs1] < (int64_t)imm)
-			vm->regs.x[rd] = 1;
+		if ((int64_t)ht->regs.x[rs1] < (int64_t)imm)
+			ht->regs.x[rd] = 1;
 		else
-			vm->regs.x[rd] = 0;
+			ht->regs.x[rd] = 0;
 		break;
 	case RISCV_RV32I_INSTRUCTION_SLTIU:
-		if (vm->regs.x[rs1] < imm)
-			vm->regs.x[rd] = 1;
+		if (ht->regs.x[rs1] < imm)
+			ht->regs.x[rd] = 1;
 		else
-			vm->regs.x[rd] = 0;
+			ht->regs.x[rd] = 0;
 		break;
 	case RISCV_RV32I_INSTRUCTION_SLLI:
-		vm->regs.x[rd] = vm->regs.x[rs1] << shamt;
+		ht->regs.x[rd] = ht->regs.x[rs1] << shamt;
 		break;
 	case RISCV_RV32I_FUNCTION_SRI:
 		switch (funct7) {
 		case RISCV_RV32I_INSTRUCTION_SRLI:
-			vm->regs.x[rd] = vm->regs.x[rs1] >> imm;
+			ht->regs.x[rd] = ht->regs.x[rs1] >> imm;
 			break;
 		case RISCV_RV32I_INSTRUCTION_SRAI:
-			sbit = vm->regs.x[rs1] >> 63;
-			vm->regs.x[rd] = vm->regs.x[rs1] >> imm;
-			vm->regs.x[rd] |= sbit << 63;
+			sbit = ht->regs.x[rs1] >> 63;
+			ht->regs.x[rd] = ht->regs.x[rs1] >> imm;
+			ht->regs.x[rd] |= sbit << 63;
 			break;
 		default:
-			riskie_vm_exception(vm, "illegal sri 0x%08x", instr);
+			riskie_ht_exception(ht, "illegal sri 0x%08x", instr);
 		}
 		break;
 	default:
-		riskie_vm_exception(vm, "illegal i-type 0x%08x", instr);
+		riskie_ht_exception(ht, "illegal i-type 0x%08x", instr);
 	}
 
-	riskie_debug("   -> reg.%u = %" PRIx64 "\n", rd, vm->regs.x[rd]);
+	riskie_debug("   -> reg.%u = %" PRIx64 "\n", rd, ht->regs.x[rd]);
 }
 
 /*
@@ -1221,54 +1221,54 @@ riskie_opcode_i_type_32(struct vm *vm, u_int32_t instr)
  * instructions implement the *.W variants and thus operate on 32-bit.
  */
 static void
-riskie_opcode_i_type_64(struct vm *vm, u_int32_t instr)
+riskie_opcode_i_type_64(struct hart *ht, u_int32_t instr)
 {
 	u_int64_t	imm;
 	u_int8_t	rd, rs1;
 	u_int32_t	funct3, funct7, shamt, v32, sbit;
 
-	PRECOND(vm != NULL);
+	PRECOND(ht != NULL);
 
 	funct3 = (instr >> 12) & 0x7;
 	funct7 = (instr >> 25) & 0x7f;
 
-	rd = riskie_instr_rd(vm, instr);
-	rs1 = riskie_instr_rs1(vm, instr);
-	imm = riskie_instr_imm_i(vm, instr);
-	shamt = riskie_instr_shamt(vm, instr);
+	rd = riskie_instr_rd(ht, instr);
+	rs1 = riskie_instr_rs1(ht, instr);
+	imm = riskie_instr_imm_i(ht, instr);
+	shamt = riskie_instr_shamt(ht, instr);
 
 	riskie_debug("I-TYPE-RV64I, funct3=0x%02x, funct7=0x%02x, rd=%u, "
 	    "rs1=%u, imm=%" PRId64 "\n", funct3, funct7, rd, rs1, (int64_t)imm);
 
 	switch (funct3) {
 	case RISCV_RV64I_INSTRUCTION_ADDIW:
-		v32 = (u_int32_t)vm->regs.x[rs1] + (int32_t)imm;
-		vm->regs.x[rd] = riskie_sign_extend(v32, 31);
+		v32 = (u_int32_t)ht->regs.x[rs1] + (int32_t)imm;
+		ht->regs.x[rd] = riskie_sign_extend(v32, 31);
 		break;
 	case RISCV_RV64I_INSTRUCTION_SLLIW:
-		vm->regs.x[rd] = (u_int32_t)vm->regs.x[rs1] << shamt;
+		ht->regs.x[rd] = (u_int32_t)ht->regs.x[rs1] << shamt;
 		break;
 	case RISCV_RV64I_FUNCTION_SRIW:
 		switch (funct7) {
 		case RISCV_RV64I_INSTRUCTION_SRLIW:
-			v32 = vm->regs.x[rs1];
-			vm->regs.x[rd] = v32 >> imm;
+			v32 = ht->regs.x[rs1];
+			ht->regs.x[rd] = v32 >> imm;
 			break;
 		case RISCV_RV64I_INSTRUCTION_SRAIW:
-			v32 = vm->regs.x[rs1];
+			v32 = ht->regs.x[rs1];
 			sbit = v32 >> 31;
-			vm->regs.x[rd] = v32 >> imm;
-			vm->regs.x[rd] |= sbit << 31;
+			ht->regs.x[rd] = v32 >> imm;
+			ht->regs.x[rd] |= sbit << 31;
 			break;
 		default:
-			riskie_vm_exception(vm, "illegal sri 0x%08x", instr);
+			riskie_ht_exception(ht, "illegal sri 0x%08x", instr);
 		}
 		break;
 	default:
-		riskie_vm_exception(vm, "illegal i-type 0x%08x", instr);
+		riskie_ht_exception(ht, "illegal i-type 0x%08x", instr);
 	}
 
-	riskie_debug("   -> reg.%u = %" PRIx64 "\n", rd, vm->regs.x[rd]);
+	riskie_debug("   -> reg.%u = %" PRIx64 "\n", rd, ht->regs.x[rd]);
 }
 
 /*
@@ -1279,82 +1279,82 @@ riskie_opcode_i_type_64(struct vm *vm, u_int32_t instr)
  * operate on XLEN bits, and thus 64-bit.
  */
 static void
-riskie_opcode_r_type_32(struct vm *vm, u_int32_t instr)
+riskie_opcode_r_type_32(struct hart *ht, u_int32_t instr)
 {
 	u_int64_t	sbit;
 	u_int8_t	rd, rs1, rs2;
 	u_int32_t	funct3, funct7;
 
-	PRECOND(vm != NULL);
+	PRECOND(ht != NULL);
 
 	funct3 = (instr >> 12) & 0x7;
 	funct7 = (instr >> 25) & 0x7f;
 
-	rd = riskie_instr_rd(vm, instr);
-	rs1 = riskie_instr_rs1(vm, instr);
-	rs2 = riskie_instr_rs2(vm, instr);
+	rd = riskie_instr_rd(ht, instr);
+	rs1 = riskie_instr_rs1(ht, instr);
+	rs2 = riskie_instr_rs2(ht, instr);
 
 	riskie_debug("I-TYPE-RV32I, funct3=0x%02x, funct7=0x%02x, rd=%u, "
 	    "rs1=%u, rs2=%u\n", funct3, funct7, rd, rs1, rs2);
 
 	switch (funct3) {
 	case RISCV_RV32I_INSTRUCTION_OR:
-		vm->regs.x[rd] = vm->regs.x[rs1] | vm->regs.x[rs2];
+		ht->regs.x[rd] = ht->regs.x[rs1] | ht->regs.x[rs2];
 		break;
 	case RISCV_RV32I_INSTRUCTION_XOR:
-		vm->regs.x[rd] = vm->regs.x[rs1] ^ vm->regs.x[rs2];
+		ht->regs.x[rd] = ht->regs.x[rs1] ^ ht->regs.x[rs2];
 		break;
 	case RISCV_RV32I_INSTRUCTION_AND:
-		vm->regs.x[rd] = vm->regs.x[rs1] & vm->regs.x[rs2];
+		ht->regs.x[rd] = ht->regs.x[rs1] & ht->regs.x[rs2];
 		break;
 	case RISCV_RV32I_INSTRUCTION_SLL:
-		vm->regs.x[rd] = vm->regs.x[rs1] << (vm->regs.x[rs2] & 0x3f);
+		ht->regs.x[rd] = ht->regs.x[rs1] << (ht->regs.x[rs2] & 0x3f);
 		break;
 	case RISCV_RV32I_INSTRUCTION_SLT:
-		if ((int64_t)vm->regs.x[rs1] < (int64_t)vm->regs.x[rs2])
-			vm->regs.x[rd] = 1;
+		if ((int64_t)ht->regs.x[rs1] < (int64_t)ht->regs.x[rs2])
+			ht->regs.x[rd] = 1;
 		else
-			vm->regs.x[rd] = 0;
+			ht->regs.x[rd] = 0;
 		break;
 	case RISCV_RV32I_INSTRUCTION_SLTU:
-		if (vm->regs.x[rs1] < vm->regs.x[rs2])
-			vm->regs.x[rd] = 1;
+		if (ht->regs.x[rs1] < ht->regs.x[rs2])
+			ht->regs.x[rd] = 1;
 		else
-			vm->regs.x[rd] = 0;
+			ht->regs.x[rd] = 0;
 		break;
 	case RISCV_RV32I_FUNCTION_ADD_SUB:
 		switch (funct7) {
 		case RISCV_RV32I_INSTRUCTION_ADD:
-			vm->regs.x[rd] = vm->regs.x[rs1] + vm->regs.x[rs2];
+			ht->regs.x[rd] = ht->regs.x[rs1] + ht->regs.x[rs2];
 			break;
 		case RISCV_RV32I_INSTRUCTION_SUB:
-			vm->regs.x[rd] = vm->regs.x[rs1] - vm->regs.x[rs2];
+			ht->regs.x[rd] = ht->regs.x[rs1] - ht->regs.x[rs2];
 			break;
 		default:
-			riskie_vm_exception(vm, "illegal addsub 0x%08x", instr);
+			riskie_ht_exception(ht, "illegal addsub 0x%08x", instr);
 		}
 		break;
 	case RISCV_RV32I_FUNCTION_SR:
 		switch (funct7) {
 		case RISCV_RV32I_INSTRUCTION_SRL:
-			vm->regs.x[rd] = vm->regs.x[rs1] >>
-			    (vm->regs.x[rs2] & 0x3f);
+			ht->regs.x[rd] = ht->regs.x[rs1] >>
+			    (ht->regs.x[rs2] & 0x3f);
 			break;
 		case RISCV_RV32I_INSTRUCTION_SRA:
-			sbit = vm->regs.x[rs1] >> 63;
-			vm->regs.x[rd] = vm->regs.x[rs1] >>
-			    (vm->regs.x[rs2] & 0x3f);
-			vm->regs.x[rd] |= sbit << 63;
+			sbit = ht->regs.x[rs1] >> 63;
+			ht->regs.x[rd] = ht->regs.x[rs1] >>
+			    (ht->regs.x[rs2] & 0x3f);
+			ht->regs.x[rd] |= sbit << 63;
 			break;
 		default:
-			riskie_vm_exception(vm, "illegal sr 0x%08x", instr);
+			riskie_ht_exception(ht, "illegal sr 0x%08x", instr);
 		}
 		break;
 	default:
-		riskie_vm_exception(vm, "illegal r-type 0x%08x", instr);
+		riskie_ht_exception(ht, "illegal r-type 0x%08x", instr);
 	}
 
-	riskie_debug("   -> reg.%u = %" PRIx64 "\n", rd, vm->regs.x[rd]);
+	riskie_debug("   -> reg.%u = %" PRIx64 "\n", rd, ht->regs.x[rd]);
 }
 
 /*
@@ -1367,63 +1367,63 @@ riskie_opcode_r_type_32(struct vm *vm, u_int32_t instr)
  * instructions implement the *.W variants and thus operate on 32-bit.
  */
 static void
-riskie_opcode_r_type_64(struct vm *vm, u_int32_t instr)
+riskie_opcode_r_type_64(struct hart *ht, u_int32_t instr)
 {
 	u_int64_t	sbit;
 	u_int8_t	rd, rs1, rs2;
 	u_int32_t	funct3, funct7, v32;
 
-	PRECOND(vm != NULL);
+	PRECOND(ht != NULL);
 
 	funct3 = (instr >> 12) & 0x7;
 	funct7 = (instr >> 25) & 0x7f;
 
-	rd = riskie_instr_rd(vm, instr);
-	rs1 = riskie_instr_rs1(vm, instr);
-	rs2 = riskie_instr_rs2(vm, instr);
+	rd = riskie_instr_rd(ht, instr);
+	rs1 = riskie_instr_rs1(ht, instr);
+	rs2 = riskie_instr_rs2(ht, instr);
 
 	riskie_debug("I-TYPE-RV64I, funct3=0x%02x, funct7=0x%02x, rd=%u, "
 	    "rs1=%u, rs2=%u\n", funct3, funct7, rd, rs1, rs2);
 
 	switch (funct3) {
 	case RISCV_RV64I_INSTRUCTION_SLLW:
-		vm->regs.x[rd] = (u_int32_t)(vm->regs.x[rs1] <<
-		    (vm->regs.x[rs2] & 0xf));
+		ht->regs.x[rd] = (u_int32_t)(ht->regs.x[rs1] <<
+		    (ht->regs.x[rs2] & 0xf));
 		break;
 	case RISCV_RV64I_FUNCTION_ADD_SUB:
 		switch (funct7) {
 		case RISCV_RV64I_INSTRUCTION_ADDW:
-			v32 = vm->regs.x[rs1] + vm->regs.x[rs2];
-			vm->regs.x[rd] = riskie_sign_extend(v32, 31);
+			v32 = ht->regs.x[rs1] + ht->regs.x[rs2];
+			ht->regs.x[rd] = riskie_sign_extend(v32, 31);
 			break;
 		case RISCV_RV64I_INSTRUCTION_SUBW:
-			vm->regs.x[rd] = (int32_t)vm->regs.x[rs1] -
-			    (int32_t)vm->regs.x[rs2];
+			ht->regs.x[rd] = (int32_t)ht->regs.x[rs1] -
+			    (int32_t)ht->regs.x[rs2];
 			break;
 		default:
-			riskie_vm_exception(vm, "illegal addsub 0x%08x", instr);
+			riskie_ht_exception(ht, "illegal addsub 0x%08x", instr);
 		}
 		break;
 	case RISCV_RV64I_FUNCTION_SRW:
 		switch (funct7) {
 		case RISCV_RV64I_INSTRUCTION_SRLW:
-			v32 = vm->regs.x[rs1];
-			vm->regs.x[rd] = v32 >> (vm->regs.x[rs2] & 0xf);
+			v32 = ht->regs.x[rs1];
+			ht->regs.x[rd] = v32 >> (ht->regs.x[rs2] & 0xf);
 			break;
 		case RISCV_RV64I_INSTRUCTION_SRAW:
-			v32 = vm->regs.x[rs1];
+			v32 = ht->regs.x[rs1];
 			sbit = v32 >> 31;
-			vm->regs.x[rd] = v32 >> (vm->regs.x[rs2] & 0xf);
-			vm->regs.x[rd] |= sbit << 31;
+			ht->regs.x[rd] = v32 >> (ht->regs.x[rs2] & 0xf);
+			ht->regs.x[rd] |= sbit << 31;
 			break;
 		default:
-			riskie_vm_exception(vm, "illegal sri 0x%08x", instr);
+			riskie_ht_exception(ht, "illegal sri 0x%08x", instr);
 		}
 	default:
-		riskie_vm_exception(vm, "illegal r-type 0x%08x", instr);
+		riskie_ht_exception(ht, "illegal r-type 0x%08x", instr);
 	}
 
-	riskie_debug("   -> reg.%u = %" PRIx64 "\n", rd, vm->regs.x[rd]);
+	riskie_debug("   -> reg.%u = %" PRIx64 "\n", rd, ht->regs.x[rd]);
 }
 
 /*
@@ -1433,19 +1433,19 @@ riskie_opcode_r_type_64(struct vm *vm, u_int32_t instr)
  *	and stores the result in rd.
  */
 static void
-riskie_opcode_auipc(struct vm *vm, u_int32_t instr)
+riskie_opcode_auipc(struct hart *ht, u_int32_t instr)
 {
 	u_int8_t	rd;
 	u_int64_t	imm;
 
-	PRECOND(vm != NULL);
+	PRECOND(ht != NULL);
 
-	rd = riskie_instr_rd(vm, instr);
-	imm = riskie_instr_imm_u(vm, instr);
+	rd = riskie_instr_rd(ht, instr);
+	imm = riskie_instr_imm_u(ht, instr);
 
-	vm->regs.x[rd] = (vm->regs.pc - sizeof(instr)) + (int64_t)imm;
+	ht->regs.x[rd] = (ht->regs.pc - sizeof(instr)) + (int64_t)imm;
 
-	riskie_debug("AUIPC, rd=%u, value=%" PRIx64 "\n", rd, vm->regs.x[rd]);
+	riskie_debug("AUIPC, rd=%u, value=%" PRIx64 "\n", rd, ht->regs.x[rd]);
 }
 
 /*
@@ -1455,16 +1455,16 @@ riskie_opcode_auipc(struct vm *vm, u_int32_t instr)
  *	result to rd.
  */
 static void
-riskie_opcode_lui(struct vm *vm, u_int32_t instr)
+riskie_opcode_lui(struct hart *ht, u_int32_t instr)
 {
 	u_int8_t	rd;
 
-	PRECOND(vm != NULL);
+	PRECOND(ht != NULL);
 
-	rd = riskie_instr_rd(vm, instr);
-	riskie_debug("LUI, rd=%u, value=%" PRIx64 "\n", rd, vm->regs.x[rd]);
+	rd = riskie_instr_rd(ht, instr);
+	riskie_debug("LUI, rd=%u, value=%" PRIx64 "\n", rd, ht->regs.x[rd]);
 
-	vm->regs.x[rd] = riskie_sign_extend(instr & 0xfffff000, 31);
+	ht->regs.x[rd] = riskie_sign_extend(instr & 0xfffff000, 31);
 }
 
 /*
@@ -1477,22 +1477,22 @@ riskie_opcode_lui(struct vm *vm, u_int32_t instr)
  *	address of the instruction following the jump (pc+4) into register rd. 
  */
 static void
-riskie_opcode_jal(struct vm *vm, u_int32_t instr)
+riskie_opcode_jal(struct hart *ht, u_int32_t instr)
 {
 	u_int8_t	rd;
 	u_int64_t	off;
 
-	PRECOND(vm != NULL);
+	PRECOND(ht != NULL);
 
-	rd = riskie_instr_rd(vm, instr);
-	off = riskie_instr_imm_j(vm, instr);
+	rd = riskie_instr_rd(ht, instr);
+	off = riskie_instr_imm_j(ht, instr);
 
 	riskie_debug("JAL, rd=%u, off=%" PRId64 "\n", rd, (int64_t)off);
 
-	vm->regs.x[rd] = vm->regs.pc;
-	vm->regs.pc = (vm->regs.pc - sizeof(instr)) + (int64_t)off;
+	ht->regs.x[rd] = ht->regs.pc;
+	ht->regs.pc = (ht->regs.pc - sizeof(instr)) + (int64_t)off;
 
-	riskie_validate_pc(vm);
+	riskie_validate_pc(ht);
 }
 
 /*
@@ -1503,21 +1503,21 @@ riskie_opcode_jal(struct vm *vm, u_int32_t instr)
  *	least-signiﬁcant bit of the result to zero.
  */
 static void
-riskie_opcode_jalr(struct vm *vm, u_int32_t instr)
+riskie_opcode_jalr(struct hart *ht, u_int32_t instr)
 {
 	u_int64_t	off;
 	u_int8_t	rs1, rd;
 
-	PRECOND(vm != NULL);
+	PRECOND(ht != NULL);
 
-	rd = riskie_instr_rd(vm, instr);
-	rs1 = riskie_instr_rs1(vm, instr);
-	off = riskie_instr_imm_i(vm, instr);
+	rd = riskie_instr_rd(ht, instr);
+	rs1 = riskie_instr_rs1(ht, instr);
+	off = riskie_instr_imm_i(ht, instr);
 
 	riskie_debug("JALR, rd=%u, rs1=%u, off=%" PRIx64 "\n", rd, rs1, off);
 
-	vm->regs.x[rd] = vm->regs.pc;
-	vm->regs.pc = (rs1 + off) & ~0x1;
+	ht->regs.x[rd] = ht->regs.pc;
+	ht->regs.pc = (rs1 + off) & ~0x1;
 
-	riskie_validate_pc(vm);
+	riskie_validate_pc(ht);
 }
