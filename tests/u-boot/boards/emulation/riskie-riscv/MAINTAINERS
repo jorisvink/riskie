@@ -1,0 +1,5 @@
+QEMU RISC-V 'VIRT' BOARD
+M:	Joris Vink <joris@sanctorum.se>
+S:	Maintained
+F:	board/emulation/riskie-riscv/
+F:	configs/riskie-riscv64_defconfig
