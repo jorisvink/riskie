@@ -1,0 +1,3 @@
+Some files that are required to get u-boot to run on riskie.
+
+Copied and adapated from qemu-riscv in u-boot.
