@@ -1074,7 +1074,7 @@ riskie_csr_access(struct hart *ht, u_int16_t csr, u_int64_t bits, int ls)
 
 	PRECOND(ht != NULL);
 
-	perm = (csr >> 10) & 0xff;
+	perm = (csr >> 10) & 0x03;
 	privilege = (csr >> 8) & 0x03;
 
 	if (ht->mode != privilege)
@@ -1086,7 +1086,7 @@ riskie_csr_access(struct hart *ht, u_int16_t csr, u_int64_t bits, int ls)
 			riskie_ht_exception(ht, "write to ro csr 0x%04x", csr);
 		break;
 	case RISKIE_MEM_LOAD:
-		if (perm != 0 && perm != 1)
+		if (perm == 2)
 			riskie_ht_exception(ht, "read from wr csr 0x%04x", csr);
 		break;
 	default:
