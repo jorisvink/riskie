@@ -1363,10 +1363,6 @@ riskie_opcode_load(struct hart *ht, u_int32_t instr)
 
 	riskie_debug(ht, "    <- reg.%u = %" PRIx64 "\n", rs1, ht->regs.x[rs1]);
 
-	/*
-	 * XXX - need a way to relay that memory access failed
-	 * and that the register should not be set.
-	 */
 	switch (funct3) {
 	case RISCV_RV32I_INSTRUCTION_LB:
 		v32 = riskie_mem_fetch(ht, addr, 8);
