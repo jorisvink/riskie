@@ -10,8 +10,9 @@ AS=riscv64-unknown-elf-as
 LD=riscv64-unknown-elf-ld
 OBJCOPY=riscv64-unknown-elf-objcopy
 
-TESTS=	instructions/loads \
-	instructions/csr
+TESTS=	instructions/csr \
+	instructions/loads \
+	instructions/interrupts
 
 all: $(OBJDIR)
 	@for test in $(TESTS); do			\

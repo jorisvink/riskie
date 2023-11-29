@@ -48,12 +48,36 @@
 #define VM_MEM_SIZE			(1 << 21)
 
 /*
- * Some RISC-V defined CSRs we prepopulate.
+ * RISC-V Control and Status Registers.
  */
-#define RISCV_CSR_RO_VENDOR_ID		0xf11
-#define RISCV_CSR_RO_ARCHITECTURE_ID	0xf12
-#define RISCV_CSR_RO_IMPLEMENTATION_ID	0xf13
-#define RISCV_CSR_RO_HART_ID		0xf14
+#define RISCV_CSR_MRO_VENDOR_ID		0xf11
+#define RISCV_CSR_MRO_ARCHITECTURE_ID	0xf12
+#define RISCV_CSR_MRO_IMPLEMENTATION_ID	0xf13
+#define RISCV_CSR_MRO_HART_ID		0xf14
+
+/* The machine status. */
+#define RISCV_CSR_MRW_MSTATUS		0x300
+
+/* Vector base address and traps. */
+#define RISCV_CSR_MRW_MIE		0x304
+#define RISCV_CSR_MRW_MTVEC		0x305
+#define RISCV_CSR_MRW_MEPC		0x341
+#define RISCV_CSR_MRW_MCAUSE		0x342
+#define RISCV_CSR_MRW_MIP		0x344
+
+/*
+ * The mstatus register bits that are important to us right now.
+ */
+#define RISCV_MSTATUS_BIT_SIE		1
+#define RISCV_MSTATUS_BIT_MIE		3
+#define RISCV_MSTATUS_BIT_MPIE		7
+
+/*
+ * mpi and mie bits that are important to us.
+ */
+#define RISCV_TRAP_BIT_MSI		3
+#define RISCV_TRAP_BIT_MTI		7
+#define RISCV_TRAP_BIT_MEI		11
 
 /*
  * The RV32I instruction set.
@@ -116,7 +140,6 @@
 
 /* System instructions. */
 #define RISCV_RV32I_OPCODE_SYSTEM		0x73
-#define RISCV_RV32I_INSTRUCTION_ECALL		0x00
 #define RISCV_RV32I_INSTRUCTION_CSRRW		0x01
 #define RISCV_RV32I_INSTRUCTION_CSRRS		0x02
 #define RISCV_RV32I_INSTRUCTION_CSRRC		0x03
@@ -130,6 +153,19 @@
 #define RISCV_RV32I_INSTRUCTION_JAL		0x6f
 #define RISCV_RV32I_INSTRUCTION_JALR		0x67
 #define RISCV_RV32I_INSTRUCTION_FENCE		0x0f
+
+/*
+ * Privileged instructions.
+ */
+#define RISCV_PRIV_FUNCTION_TRAP		0x00
+#define RISCV_PRIV_INSTRUCTION_ECALL		0x00
+
+#define RISCV_PRIV_FUNCTION_TRAP_RETURN		0x02
+#define RISCV_PRIV_INSTRUCTION_SRET		0x08
+#define RISCV_PRIV_INSTRUCTION_MRET		0x18
+
+#define RISCV_PRIV_FUNCTION_INTERRUPT_MGMT	0x05
+#define RISCV_PRIV_INSTRUCTION_WFI		0x08
 
 /*
  * The RV64I instruction set.
@@ -162,12 +198,16 @@
 #define RISCV_RV64I_INSTRUCTION_ADDW		0x00
 #define RISCV_RV64I_INSTRUCTION_SUBW		0x20
 
+/* The supported privilege modes. */
+#define RISKIE_HART_MACHINE_MODE		3
+
 /*
  * A RISC-V hart.
  */
 struct hart {
 	/* Note: memory LOADS are always 64-bit.  */
 	u_int8_t		*mem;
+	u_int8_t		mode;
 
 	struct {
 		u_int64_t	pc;
@@ -193,9 +233,18 @@ static u_int8_t		riskie_validate_register(struct hart *, u_int8_t);
 static void		riskie_validate_mem_access(struct hart *,
 			    u_int64_t, size_t);
 
+static u_int8_t		riskie_bit_get(u_int64_t, u_int8_t);
+static void		riskie_bit_set(u_int64_t *, u_int8_t);
+static void		riskie_bit_clear(u_int64_t *, u_int8_t);
+
+static void		riskie_trap_execute(struct hart *);
+static void		riskie_trap_machine(struct hart *, u_int8_t);
+static void		riskie_trap_set_pending(struct hart *, u_int8_t);
+
 static void		riskie_next_instruction(struct hart *);
 static u_int64_t	riskie_sign_extend(u_int32_t, u_int8_t);
-static void		riskie_csr_writable(struct hart *, u_int16_t);
+static void		riskie_csr_writable(struct hart *, u_int16_t,
+			    u_int64_t);
 
 static u_int8_t		riskie_mem_fetch8(struct hart *, u_int64_t);
 static u_int16_t	riskie_mem_fetch16(struct hart *, u_int64_t);
@@ -222,6 +271,7 @@ static void	riskie_opcode_lui(struct hart *, u_int32_t);
 static void	riskie_opcode_jal(struct hart *, u_int32_t);
 static void	riskie_opcode_jalr(struct hart *, u_int32_t);
 static void	riskie_opcode_load(struct hart *, u_int32_t);
+static void	riskie_opcode_mret(struct hart *, u_int32_t);
 static void	riskie_opcode_store(struct hart *, u_int32_t);
 static void	riskie_opcode_auipc(struct hart *, u_int32_t);
 static void	riskie_opcode_system(struct hart *, u_int32_t);
@@ -318,6 +368,39 @@ riskie_debug(const char *fmt, ...)
 	va_start(args, fmt);
 	vprintf(fmt, args);
 	va_end(args);
+}
+
+/*
+ * Set the given bit in the given 64-bit bitmap.
+ */
+static void
+riskie_bit_set(u_int64_t *bitmap, u_int8_t bit)
+{
+	PRECOND(bit <= 63);
+
+	*bitmap |= ((u_int64_t)1 << bit);
+}
+
+/*
+ * Clear the given bit in the given 64-bit bitmap.
+ */
+static void
+riskie_bit_clear(u_int64_t *bitmap, u_int8_t bit)
+{
+	PRECOND(bit <= 63);
+
+	*bitmap &= ~((u_int64_t)1 << bit);
+}
+
+/*
+ * Get the given bit from the given 64-bit bitmap.
+ */
+static u_int8_t
+riskie_bit_get(u_int64_t bitmap, u_int8_t bit)
+{
+	PRECOND(bit <= 63);
+
+	return ((bitmap >> bit) & 0x01);
 }
 
 /*
@@ -519,10 +602,12 @@ riskie_ht_init(struct hart *ht, const char *path, u_int16_t hid)
 	if (ret != st.st_size)
 		errx(1, "failed to read, only got %zd/%zd", ret, st.st_size);
 
-	ht->regs.x[2] = VM_MEM_SIZE;
+	ht->mode = RISKIE_HART_MACHINE_MODE;
 
-	ht->csr[RISCV_CSR_RO_HART_ID] = hid;
-	ht->csr[RISCV_CSR_RO_VENDOR_ID] = 0x20231021;
+	ht->csr[RISCV_CSR_MRO_HART_ID] = hid;
+	ht->csr[RISCV_CSR_MRO_VENDOR_ID] = 0x20231021;
+
+	ht->regs.x[2] = VM_MEM_SIZE;
 
 	close(fd);
 
@@ -559,7 +644,7 @@ riskie_ht_exception(struct hart *ht, const char *fmt, ...)
 
 	fprintf(stderr, "\n");
 
-	fprintf(stderr, "pc=0x%" PRIx64 "\n", ht->regs.pc - sizeof(u_int32_t));
+	fprintf(stderr, "pc=0x%" PRIx64 "\n", ht->regs.pc);
 	for (idx = 0; idx < RISCV_REGISTER_COUNT; idx++)
 		fprintf(stderr, "x%d=0x%" PRIx64 "\n", idx, ht->regs.x[idx]);
 
@@ -590,6 +675,7 @@ riskie_ht_run(struct hart *ht)
 			sig_recv = -1;
 		}
 
+		riskie_trap_execute(ht);
 		riskie_next_instruction(ht);
 	}
 
@@ -843,11 +929,15 @@ riskie_instr_imm_s(struct hart *ht, u_int32_t instr)
  * The upper 4-bits encode read, write and access capabilities.
  *
  * A CSR is 12-bit.
+ *
+ * If bits it non-zero we perform a per-bit check for certain CSRs
+ * if they are writable or not.
  */
 static void
-riskie_csr_writable(struct hart *ht, u_int16_t csr)
+riskie_csr_writable(struct hart *ht, u_int16_t csr, u_int64_t bits)
 {
 	u_int8_t	perm;
+	int		fail;
 
 	PRECOND(ht != NULL);
 
@@ -856,6 +946,123 @@ riskie_csr_writable(struct hart *ht, u_int16_t csr)
 	/* Both bits set in perm means the CSR is read-only. */
 	if (perm == 3)
 		riskie_ht_exception(ht, "write to ro csr 0x%04x", csr);
+
+	if (bits == 0)
+		return;
+
+	fail = 0;
+
+	/*
+	 * Different CSRs have protected bits that cannot be set
+	 * by software.
+	 */
+	switch (csr) {
+	case RISCV_CSR_MRW_MIP:
+		if (riskie_bit_get(bits, RISCV_TRAP_BIT_MEI))
+			fail++;
+		if (riskie_bit_get(bits, RISCV_TRAP_BIT_MTI))
+			fail++;
+		if (riskie_bit_get(bits, RISCV_TRAP_BIT_MSI))
+			fail++;
+		break;
+	}
+
+	if (fail)
+		riskie_ht_exception(ht, "write to ro-bit csr 0x%04x", csr);
+}
+
+/*
+ * Set a trap to be pending.
+ */
+static void
+riskie_trap_set_pending(struct hart *ht, u_int8_t trap)
+{
+	PRECOND(ht != NULL);
+	PRECOND(trap <= 15);
+
+	riskie_bit_set(&ht->csr[RISCV_CSR_MRW_MIP], trap);
+}
+
+/*
+ * Execute traps in decreasing priority order.
+ *	-> MEI, MSI, MTI, SEI, SSI, STI.
+ */
+static void
+riskie_trap_execute(struct hart *ht)
+{
+	PRECOND(ht != NULL);
+
+	/* Globasl M-mode interrupts enabled. */
+	if (riskie_bit_get(ht->csr[RISCV_CSR_MRW_MSTATUS],
+	    RISCV_MSTATUS_BIT_MIE) == 0)
+		return;
+
+	/* MIE */
+	if (riskie_bit_get(ht->csr[RISCV_CSR_MRW_MIE], RISCV_TRAP_BIT_MEI) &&
+	    riskie_bit_get(ht->csr[RISCV_CSR_MRW_MIP], RISCV_TRAP_BIT_MEI))
+		riskie_trap_machine(ht, RISCV_TRAP_BIT_MEI);
+
+	/* MSI */
+	if (riskie_bit_get(ht->csr[RISCV_CSR_MRW_MIE], RISCV_TRAP_BIT_MSI) &&
+	    riskie_bit_get(ht->csr[RISCV_CSR_MRW_MIP], RISCV_TRAP_BIT_MSI))
+		riskie_trap_machine(ht, RISCV_TRAP_BIT_MSI);
+
+	/* MTI */
+	if (riskie_bit_get(ht->csr[RISCV_CSR_MRW_MIE], RISCV_TRAP_BIT_MTI) &&
+	    riskie_bit_get(ht->csr[RISCV_CSR_MRW_MIP], RISCV_TRAP_BIT_MTI))
+		riskie_trap_machine(ht, RISCV_TRAP_BIT_MSI);
+}
+
+/*
+ * Let a trap into M-mode occur on the given hart.
+ *
+ * A few things happen here:
+ *	- save the current privilege level in MPP.
+ *	- save the current MIE bit in MPIE.
+ *	- set MIE to 0 (disabling interrupts).
+ *	- save the current PC into the mepc CSR.
+ *	- jump to mtvec base address.
+ */
+static void
+riskie_trap_machine(struct hart *ht, u_int8_t trap)
+{
+	PRECOND(ht != NULL);
+	PRECOND(trap <= 15);
+
+	PRECOND(riskie_bit_get(ht->csr[RISCV_CSR_MRW_MIP], trap));
+	PRECOND(riskie_bit_get(ht->csr[RISCV_CSR_MRW_MIE], trap));
+
+	riskie_debug("MTRAP, mode=%u, trap=%u, mpi=0x%" PRIx64
+	    ", mie=0x%" PRIx64 "\n", ht->mode, trap,
+	    ht->csr[RISCV_CSR_MRW_MIP], ht->csr[RISCV_CSR_MRW_MIE]);
+
+	riskie_bit_clear(&ht->csr[RISCV_CSR_MRW_MIP], trap);
+
+	switch (ht->mode) {
+	case RISKIE_HART_MACHINE_MODE:
+		riskie_bit_set(&ht->csr[RISCV_CSR_MRW_MSTATUS], 11);
+		riskie_bit_set(&ht->csr[RISCV_CSR_MRW_MSTATUS], 12);
+		break;
+	default:
+		riskie_ht_exception(ht, "invalid mode %u", ht->mode);
+	}
+
+	if (riskie_bit_get(ht->csr[RISCV_CSR_MRW_MSTATUS],
+	    RISCV_MSTATUS_BIT_MIE)) {
+		riskie_bit_set(&ht->csr[RISCV_CSR_MRW_MSTATUS],
+		    RISCV_MSTATUS_BIT_MPIE);
+	} else {
+		riskie_bit_clear(&ht->csr[RISCV_CSR_MRW_MSTATUS],
+		    RISCV_MSTATUS_BIT_MPIE);
+	}
+
+	riskie_bit_clear(&ht->csr[RISCV_CSR_MRW_MSTATUS],
+	    RISCV_MSTATUS_BIT_MIE);
+
+	ht->csr[RISCV_CSR_MRW_MCAUSE] = trap;
+	ht->csr[RISCV_CSR_MRW_MEPC] = ht->regs.pc;
+
+	ht->regs.pc = ht->csr[RISCV_CSR_MRW_MTVEC];
 }
 
 /*
@@ -1021,26 +1228,32 @@ riskie_opcode_store(struct hart *ht, u_int32_t instr)
 }
 
 /*
- * A system instruction was found, check funct3 and execute the
- * correct one.
+ * a SYSTEM opcode was found, we look further what it was and perform
+ * the correct thing to do.
+ *
+ * This is everything from writing/reading CSRs, to trap related things
+ * such as ecall/mret/sret.
  */
 static void
 riskie_opcode_system(struct hart *ht, u_int32_t instr)
 {
+	u_int8_t	rd;
 	u_int16_t	csr;
-	u_int32_t	funct3;
-	u_int8_t	rd, rs1;
+	u_int64_t	rs1, rs2;
+	u_int32_t	funct3, funct7;
 
 	PRECOND(ht != NULL);
 
 	funct3 = (instr >> 12) & 0x7;
+	funct7 = (instr >> 25) & 0x7f;
 
 	rd = riskie_instr_rd(ht, instr);
 	rs1 = riskie_instr_rs1(ht, instr);
+	rs2 = riskie_instr_rs2(ht, instr);
 	csr = riskie_instr_csr(ht, instr);
 
-	riskie_debug("SYSTEM, funct3=0x%02x, rd=%u, rs1=%u, csr=0x%02x\n",
-	    funct3, rd, rs1, csr);
+	riskie_debug("SYSTEM, funct3=0x%02x, rd=%u, rs1=%u, rs2=%u "
+	    "csr=0x%02x\n", funct3, rd, rs1, rs2, csr);
 
 	switch (funct3) {
 	case RISCV_RV32I_INSTRUCTION_CSRRW:
@@ -1056,8 +1269,36 @@ riskie_opcode_system(struct hart *ht, u_int32_t instr)
 	}
 
 	switch (funct3) {
-	case RISCV_RV32I_INSTRUCTION_ECALL:
-		/* big bunch of nothing. */
+	case RISCV_PRIV_FUNCTION_TRAP:
+		switch (rs2) {
+		case RISCV_PRIV_FUNCTION_TRAP_RETURN:
+			switch (funct7) {
+			case RISCV_PRIV_INSTRUCTION_SRET:
+				break;
+			case RISCV_PRIV_INSTRUCTION_MRET:
+				riskie_opcode_mret(ht, instr);
+				break;
+			default:
+				riskie_ht_exception(ht,
+				    "illegal trap instruction 0x%08x", instr);
+			}
+			break;
+		case RISCV_PRIV_FUNCTION_INTERRUPT_MGMT:
+			switch (funct7) {
+			case RISCV_PRIV_INSTRUCTION_WFI:
+				break;
+			default:
+				riskie_ht_exception(ht,
+				    "illegal interrupt mgmt 0x%08x", instr);
+			}
+			break;
+		case RISCV_PRIV_INSTRUCTION_ECALL:
+			riskie_trap_set_pending(ht, RISCV_TRAP_BIT_MSI);
+			break;
+		default:
+			riskie_ht_exception(ht,
+			    "illegal trap instruction 0x%08x", instr);
+		}
 		break;
 	case RISCV_RV32I_INSTRUCTION_CSRRW:
 	case RISCV_RV32I_INSTRUCTION_CSRRWI:
@@ -1065,7 +1306,7 @@ riskie_opcode_system(struct hart *ht, u_int32_t instr)
 		 * This counts as atomic unless we start doing
 		 * multiprocess approaches for the future harts.
 		 */
-		riskie_csr_writable(ht, csr);
+		riskie_csr_writable(ht, csr, rs1);
 		if (rd != 0)
 			ht->regs.x[rd] = ht->csr[csr];
 		ht->csr[csr] = rs1;
@@ -1074,7 +1315,7 @@ riskie_opcode_system(struct hart *ht, u_int32_t instr)
 	case RISCV_RV32I_INSTRUCTION_CSRRSI:
 		ht->regs.x[rd] = ht->csr[csr];
 		if (rs1 != 0) {
-			riskie_csr_writable(ht, csr);
+			riskie_csr_writable(ht, csr, rs1);
 			ht->csr[csr] |= rs1;
 		}
 		break;
@@ -1082,7 +1323,7 @@ riskie_opcode_system(struct hart *ht, u_int32_t instr)
 	case RISCV_RV32I_INSTRUCTION_CSRRCI:
 		ht->regs.x[rd] = ht->csr[csr];
 		if (rs1 != 0) {
-			riskie_csr_writable(ht, csr);
+			riskie_csr_writable(ht, csr, rs1);
 			ht->csr[csr] &= ~rs1;
 		}
 		break;
@@ -1437,6 +1678,48 @@ riskie_opcode_r_type_64(struct hart *ht, u_int32_t instr)
 	}
 
 	riskie_debug("   -> reg.%u = %" PRIx64 "\n", rd, ht->regs.x[rd]);
+}
+
+/*
+ * The MRET instruction, returns from an M-mode trap back to where
+ * we came from, restoring privilege level etc.
+ *
+ * Privilege level = MPP
+ * MIE = MPIE
+ * MPIE = 0
+ * PC = MEPC
+ */
+static void
+riskie_opcode_mret(struct hart *ht, u_int32_t instr)
+{
+	PRECOND(ht != NULL);
+
+	riskie_debug("MRET, mode=%u, mepc=0x%" PRIx64 "\n", ht->mode,
+	    ht->csr[RISCV_CSR_MRW_MEPC]);
+
+	switch (ht->mode) {
+	case RISKIE_HART_MACHINE_MODE:
+		riskie_bit_set(&ht->csr[RISCV_CSR_MRW_MSTATUS], 11);
+		riskie_bit_set(&ht->csr[RISCV_CSR_MRW_MSTATUS], 12);
+		break;
+	default:
+		riskie_ht_exception(ht, "invalid mode %u", ht->mode);
+	}
+
+	if (riskie_bit_get(ht->csr[RISCV_CSR_MRW_MSTATUS],
+	    RISCV_MSTATUS_BIT_MPIE)) {
+		riskie_bit_set(&ht->csr[RISCV_CSR_MRW_MSTATUS],
+		    RISCV_MSTATUS_BIT_MIE);
+	} else {
+		riskie_bit_clear(&ht->csr[RISCV_CSR_MRW_MSTATUS],
+		    RISCV_MSTATUS_BIT_MIE);
+	}
+
+	riskie_bit_clear(&ht->csr[RISCV_CSR_MRW_MSTATUS],
+	    RISCV_MSTATUS_BIT_MPIE);
+
+	ht->csr[RISCV_CSR_MRW_MCAUSE] = 0;
+	ht->regs.pc = ht->csr[RISCV_CSR_MRW_MEPC];
 }
 
 /*
