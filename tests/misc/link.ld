@@ -3,7 +3,7 @@ ENTRY(test_entry)
 
 MEMORY
 {
-	ROM	(rx):	ORIGIN = 0x00000000, LENGTH = 2M
+	RAM	(rx):	ORIGIN = 0x80000000, LENGTH = 2M
 }
 
 SECTIONS
@@ -14,7 +14,7 @@ SECTIONS
 		*(.text)
 		*(.text*)
 		. = ALIGN(8);
-	} >ROM
+	} >RAM
 
 	.rodata :
 	{
@@ -22,7 +22,7 @@ SECTIONS
 		*(.rodata)
 		*(.rodata*)
 		. = ALIGN(8);
-	} >ROM
+	} >RAM
 
 	.data :
 	{
@@ -30,7 +30,7 @@ SECTIONS
 		*(.data)
 		*(.data*)
 		. = ALIGN(8);
-	} >ROM
+	} >RAM
 
 	. = ALIGN(8);
 	.bss :
@@ -38,5 +38,5 @@ SECTIONS
 		*(.bss)
 		*(.bss*)
 		*(.COMMON)
-	} >ROM
+	} >RAM
 }

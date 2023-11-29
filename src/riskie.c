@@ -45,9 +45,6 @@
 /* Maximum number of CSRs. */
 #define RISCV_CSR_COUNT			4096
 
-/* The size of our memory (2MB). */
-#define VM_MEM_SIZE			(1 << 21)
-
 /*
  * RISC-V Control and Status Registers.
  */
@@ -200,6 +197,13 @@
 #define RISCV_RV64I_INSTRUCTION_ADDW		0x00
 #define RISCV_RV64I_INSTRUCTION_SUBW		0x20
 
+/*
+ * "M" instructions, standard extension for multiplication and division.
+ * XXX - not all implemented.
+ */
+#define RISCV_RV32M_INSTRUCTION_MUL		0x01
+#define RISCV_RV64M_INSTRUCTION_MULW		0x01
+
 /* The supported privilege modes. */
 #define RISKIE_HART_MACHINE_MODE		3
 #define RISKIE_HART_USER_MODE			0
@@ -215,6 +219,12 @@
  */
 #define RISKIE_MEM_STORE		1
 #define RISKIE_MEM_LOAD			2
+
+/* The base address where RAM is located and code is executed from. */
+#define RISKIE_MEM_BASE_ADDR		0x80000000
+
+/* The size of our main memory (128MB). */
+#define RISKIE_MEM_SIZE			(1 << 27)
 
 /*
  * Internal flags bits.
@@ -665,7 +675,7 @@ riskie_ht_init(struct hart *ht, const char *path, u_int16_t hid)
 
 	memset(ht, 0, sizeof(*ht));
 
-	if ((ht->mem = calloc(1, VM_MEM_SIZE)) == NULL)
+	if ((ht->mem = calloc(1, RISKIE_MEM_SIZE)) == NULL)
 		err(1, "calloc");
 
 	if ((fd = open(path, O_RDONLY)) == -1)
@@ -674,7 +684,7 @@ riskie_ht_init(struct hart *ht, const char *path, u_int16_t hid)
 	if (fstat(fd, &st) == -1)
 		err(1, "fstat: %s", path);
 
-	if (st.st_size > VM_MEM_SIZE)
+	if (st.st_size > RISKIE_MEM_SIZE)
 		errx(1, "image doesn't fit in memory");
 
 	if ((ret = read(fd, ht->mem, st.st_size)) == -1)
@@ -685,7 +695,7 @@ riskie_ht_init(struct hart *ht, const char *path, u_int16_t hid)
 	if (ret != st.st_size)
 		errx(1, "failed to read, only got %zd/%zd", ret, st.st_size);
 
-	ht->regs.x[2] = VM_MEM_SIZE;
+	ht->regs.pc = RISKIE_MEM_BASE_ADDR;
 	ht->mode = RISKIE_HART_MACHINE_MODE;
 
 	ht->csr[RISCV_CSR_MRO_HART_ID] = hid;
@@ -713,6 +723,8 @@ riskie_ht_cleanup(struct hart *ht)
 static void
 riskie_ht_exception(struct hart *ht, const char *fmt, ...)
 {
+	int		fd;
+	ssize_t		ret;
 	va_list		args;
 
 	PRECOND(ht != NULL);
@@ -722,6 +734,19 @@ riskie_ht_exception(struct hart *ht, const char *fmt, ...)
 	va_start(args, fmt);
 	vfprintf(stderr, fmt, args);
 	va_end(args);
+
+	if (debug) {
+		fd = open("riskie.mem", O_CREAT | O_TRUNC | O_WRONLY, 0700);
+		if (fd != -1) {
+			ret = write(fd, ht->mem, RISKIE_MEM_SIZE);
+			if (ret != RISKIE_MEM_SIZE) {
+				printf("failed to write all memory (%zd/%d)\n",
+				    ret, RISKIE_MEM_SIZE);
+			}
+
+			(void)close(fd);
+		}
+	}
 
 	riskie_ht_dump(ht);
 	riskie_ht_cleanup(ht);
@@ -793,8 +818,10 @@ riskie_validate_pc(struct hart *ht)
 	if (ht->regs.pc + sizeof(u_int32_t) < ht->regs.pc)
 		riskie_ht_exception(ht, "pc wrap around");
 
-	if (ht->regs.pc + sizeof(u_int32_t) > VM_MEM_SIZE)
+	if (ht->regs.pc + sizeof(u_int32_t) >
+	    (RISKIE_MEM_BASE_ADDR + RISKIE_MEM_SIZE)) {
 		riskie_ht_exception(ht, "pc out of bounds");
+	}
 
 	/* XXX - todo, check R and X bit. */
 	switch (ht->mode) {
@@ -847,6 +874,10 @@ riskie_validate_mem_access(struct hart *ht, u_int64_t addr, size_t len, int ls)
 
 	ptr = NULL;
 
+	/*
+	 * Check for memory mapped registers or any other peripheral
+	 * memory space first.
+	 */
 	switch (addr) {
 	case RISKIE_MEM_REG_MTIME:
 		if (ht->mode == RISKIE_HART_MACHINE_MODE)
@@ -866,7 +897,16 @@ riskie_validate_mem_access(struct hart *ht, u_int64_t addr, size_t len, int ls)
 	if (ptr != NULL)
 		return (ptr);
 
-	if (addr >= VM_MEM_SIZE) {
+	/*
+	 * If the address requested is not located in main memory we don't
+	 * know what to do with it at this point.
+	 */
+	if (addr < RISKIE_MEM_BASE_ADDR) {
+		riskie_ht_exception(ht,
+		    "memory address 0x%" PRIx64 " invalid", addr);
+	}
+
+	if (addr >= (RISKIE_MEM_BASE_ADDR + RISKIE_MEM_SIZE)) {
 		riskie_ht_exception(ht,
 		    "memory access at 0x%" PRIx64 " out of bounds", addr);
 	}
@@ -874,12 +914,12 @@ riskie_validate_mem_access(struct hart *ht, u_int64_t addr, size_t len, int ls)
 	if (addr + len < addr)
 		riskie_ht_exception(ht, "memory access overflow");
 
-	if (addr + len > VM_MEM_SIZE) {
+	if ((addr + len) > (RISKIE_MEM_BASE_ADDR + RISKIE_MEM_SIZE)) {
 		riskie_ht_exception(ht,
 		    "memory access at 0x%" PRIx64 " out of bounds", addr);
 	}
 
-	ptr = &ht->mem[addr];
+	ptr = &ht->mem[addr - RISKIE_MEM_BASE_ADDR];
 
 	return (ptr);
 }
@@ -1287,7 +1327,7 @@ riskie_next_instruction(struct hart *ht)
 	PRECOND(ht != NULL);
 
 	riskie_validate_pc(ht);
-	memcpy(&instr, &ht->mem[ht->regs.pc], sizeof(instr));
+	instr = riskie_mem_fetch32(ht, ht->regs.pc);
 	ht->regs.pc += sizeof(instr);
 
 	ht->regs.x[0] = 0;
@@ -1636,16 +1676,23 @@ riskie_opcode_i_type_32(struct hart *ht, u_int32_t instr)
 	PRECOND(ht != NULL);
 
 	funct3 = (instr >> 12) & 0x7;
-	funct7 = (instr >> 25) & 0x7f;
+
+	/* funct7 starts at bit 26 when under rv64. */
+	funct7 = (instr >> 26) & 0x1f;
 
 	rd = riskie_instr_rd(ht, instr);
 	rs1 = riskie_instr_rs1(ht, instr);
+
+	/*
+	 * The imm and shamt parts overlap, but certain instructions
+	 * use imm, others shamt. Never combined.
+	 */
 	imm = riskie_instr_imm_i(ht, instr);
 	shamt = riskie_instr_shamt(ht, instr);
 
 	riskie_debug(ht, "I-TYPE-RV32I, funct3=0x%02x, funct7=0x%02x, "
-	    "rd=%u, rs1=%u, imm=%" PRId64 "\n", funct3, funct7, rd,
-	    rs1, (int64_t)imm);
+	    "rd=%u, rs1=%u, imm=%" PRId64 ", shamt=0x%08x\n",
+	    funct3, funct7, rd, rs1, (int64_t)imm, shamt);
 
 	switch (funct3) {
 	case RISCV_RV32I_INSTRUCTION_ADDI:
@@ -1678,11 +1725,11 @@ riskie_opcode_i_type_32(struct hart *ht, u_int32_t instr)
 	case RISCV_RV32I_FUNCTION_SRI:
 		switch (funct7) {
 		case RISCV_RV32I_INSTRUCTION_SRLI:
-			ht->regs.x[rd] = ht->regs.x[rs1] >> imm;
+			ht->regs.x[rd] = ht->regs.x[rs1] >> shamt;
 			break;
 		case RISCV_RV32I_INSTRUCTION_SRAI:
 			sbit = ht->regs.x[rs1] >> 63;
-			ht->regs.x[rd] = ht->regs.x[rs1] >> imm;
+			ht->regs.x[rd] = ht->regs.x[rs1] >> shamt;
 			ht->regs.x[rd] |= sbit << 63;
 			break;
 		default:
@@ -1815,6 +1862,9 @@ riskie_opcode_r_type_32(struct hart *ht, u_int32_t instr)
 		case RISCV_RV32I_INSTRUCTION_SUB:
 			ht->regs.x[rd] = ht->regs.x[rs1] - ht->regs.x[rs2];
 			break;
+		case RISCV_RV32M_INSTRUCTION_MUL:
+			ht->regs.x[rd] = ht->regs.x[rs1] * ht->regs.x[rs2];
+			break;
 		default:
 			riskie_ht_exception(ht, "illegal addsub 0x%08x", instr);
 		}
@@ -1884,6 +1934,11 @@ riskie_opcode_r_type_64(struct hart *ht, u_int32_t instr)
 		case RISCV_RV64I_INSTRUCTION_SUBW:
 			ht->regs.x[rd] = (int32_t)ht->regs.x[rs1] -
 			    (int32_t)ht->regs.x[rs2];
+			break;
+		case RISCV_RV64M_INSTRUCTION_MULW:
+			v32 = (int32_t)ht->regs.x[rs1] *
+			    (int32_t)ht->regs.x[rs2];
+			ht->regs.x[rd] = riskie_sign_extend(v32, 31);
 			break;
 		default:
 			riskie_ht_exception(ht, "illegal addsub 0x%08x", instr);
@@ -2038,8 +2093,8 @@ riskie_opcode_jal(struct hart *ht, u_int32_t instr)
 static void
 riskie_opcode_jalr(struct hart *ht, u_int32_t instr)
 {
-	u_int64_t	off;
 	u_int8_t	rs1, rd;
+	u_int64_t	off, base;
 
 	PRECOND(ht != NULL);
 
@@ -2050,6 +2105,7 @@ riskie_opcode_jalr(struct hart *ht, u_int32_t instr)
 	riskie_debug(ht,
 	    "JALR, rd=%u, rs1=%u, off=%" PRIx64 "\n", rd, rs1, off);
 
+	base = ht->regs.x[rs1];
 	ht->regs.x[rd] = ht->regs.pc;
-	ht->regs.pc = (rs1 + off) & ~0x1;
+	ht->regs.pc = (base + off) & ~0x1;
 }
