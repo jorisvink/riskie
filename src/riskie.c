@@ -108,7 +108,7 @@
 
 #define RISCV_RV32I_FUNCTION_SRI		0x05
 #define RISCV_RV32I_INSTRUCTION_SRLI		0x00
-#define RISCV_RV32I_INSTRUCTION_SRAI		0x20
+#define RISCV_RV32I_INSTRUCTION_SRAI		0x10
 
 /* Integer Computational Instructions (Register - Register). */
 #define RISCV_RV32I_OPCODE_R_TYPE		0x33
