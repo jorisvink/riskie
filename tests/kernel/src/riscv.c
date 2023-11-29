@@ -21,7 +21,7 @@ void		test(void);
 void		call(void);
 void		application_init(void);
 
-static uint32_t		counter = 0;
+static uint64_t		counter = 0;
 
 void
 application_init(void)
@@ -29,7 +29,7 @@ application_init(void)
 	for (;;) {
 		test();
 
-		if (counter == 4096)
+		if (counter == 1000000000)
 			counter = 0;
 	}
 }
