@@ -5,6 +5,8 @@
 .equ MTIME,	0xf0001000
 .equ MTIMECMP,	0xf0002000
 
+.equ COUNT, 0x2000
+
 .globl test_entry
 .type test_entry, @function
 
@@ -31,6 +33,16 @@ test_entry:
 	sd t1, 0(t0)
 loop:
 	wfi
+
+	li t0, COUNT
+	ld t1, 0(t0)
+
+	li t0, 4
+	beq t0, t1, generate_env_call
+	j loop
+
+generate_env_call:
+	ecall
 	j loop
 
 .globl trap
@@ -39,6 +51,13 @@ loop:
 trap:
 	csrr t0, mcause
 
+	li t1, 7
+	beq t0, t1, timer_trap
+
+	li t1, 11
+	beq t0, t1, environment_call
+
+timer_trap:
 	# Read mtime into t0, add 1 second and set timecmp
 	li t0, MTIME
 	ld t1, 0(t0)
@@ -48,4 +67,17 @@ trap:
 	li t0, MTIMECMP
 	sd t1, 0(t0)
 
+	li t0, COUNT
+	ld t1, 0(t0)
+
+	add t1, t1, 1
+	sd t1, 0(t0)
+
+	j trap_return
+
+environment_call:
+	ebreak
+	mret
+
+trap_return:
 	mret

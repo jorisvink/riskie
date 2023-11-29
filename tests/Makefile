@@ -13,7 +13,8 @@ OBJCOPY=riscv64-unknown-elf-objcopy
 TESTS=	instructions/csr \
 	instructions/loads \
 	instructions/interrupts \
-	instructions/timer
+	instructions/timer \
+	instructions/umode
 
 all: $(OBJDIR)
 	@for test in $(TESTS); do			\
