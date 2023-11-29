@@ -283,8 +283,8 @@ static void		riskie_interrupt_clear_pending(struct hart *, u_int8_t);
 
 static void		riskie_next_instruction(struct hart *);
 static u_int64_t	riskie_sign_extend(u_int32_t, u_int8_t);
-static void		riskie_csr_writable(struct hart *, u_int16_t,
-			    u_int64_t);
+static int		riskie_csr_access(struct hart *, u_int16_t,
+			    u_int64_t, int);
 
 static u_int8_t		riskie_mem_fetch8(struct hart *, u_int64_t);
 static u_int16_t	riskie_mem_fetch16(struct hart *, u_int64_t);
@@ -1061,30 +1061,40 @@ riskie_instr_imm_s(struct hart *ht, u_int32_t instr)
 }
 
 /*
- * Causes an exception if the given CSR is not writable.
- * The upper 4-bits encode read, write and access capabilities.
+ * Check permissions for the given CSR against our current privilege
+ * mode and wether or not we are trying to read / write.
  *
- * A CSR is 12-bit.
- *
- * If bits it non-zero we perform a per-bit check for certain CSRs
- * if they are writable or not.
+ * XXX - if it fails we do a hard fail right now.
  */
-static void
-riskie_csr_writable(struct hart *ht, u_int16_t csr, u_int64_t bits)
+static int
+riskie_csr_access(struct hart *ht, u_int16_t csr, u_int64_t bits, int ls)
 {
-	u_int8_t	perm;
 	int		fail;
+	u_int8_t	perm, privilege;
 
 	PRECOND(ht != NULL);
 
 	perm = (csr >> 10) & 0xff;
+	privilege = (csr >> 8) & 0x03;
 
-	/* Both bits set in perm means the CSR is read-only. */
-	if (perm == 3)
-		riskie_ht_exception(ht, "write to ro csr 0x%04x", csr);
+	if (ht->mode != privilege)
+		riskie_ht_exception(ht, "unprivileged access to 0x%04x", csr);
+
+	switch (ls) {
+	case RISKIE_MEM_STORE:
+		if (perm != 0 && perm != 2)
+			riskie_ht_exception(ht, "write to ro csr 0x%04x", csr);
+		break;
+	case RISKIE_MEM_LOAD:
+		if (perm != 0 && perm != 1)
+			riskie_ht_exception(ht, "read from wr csr 0x%04x", csr);
+		break;
+	default:
+		riskie_ht_exception(ht, "unknown ls %d", ls);
+	}
 
 	if (bits == 0)
-		return;
+		return (1);
 
 	fail = 0;
 
@@ -1105,6 +1115,8 @@ riskie_csr_writable(struct hart *ht, u_int16_t csr, u_int64_t bits)
 
 	if (fail)
 		riskie_ht_exception(ht, "write to ro-bit csr 0x%04x", csr);
+
+	return (0);
 }
 
 /*
@@ -1249,11 +1261,9 @@ riskie_trap_machine(struct hart *ht, u_int8_t exception)
 	    RISCV_MSTATUS_BIT_MIE)) {
 		riskie_bit_set(&ht->csr[RISCV_CSR_MRW_MSTATUS],
 		    RISCV_MSTATUS_BIT_MPIE);
-		printf("trap machine, MPIE set\n");
 	} else {
 		riskie_bit_clear(&ht->csr[RISCV_CSR_MRW_MSTATUS],
 		    RISCV_MSTATUS_BIT_MPIE);
-		printf("trap machine, MPIE cleared\n");
 	}
 
 	riskie_bit_clear(&ht->csr[RISCV_CSR_MRW_MSTATUS],
@@ -1529,24 +1539,29 @@ riskie_opcode_system(struct hart *ht, u_int32_t instr)
 		 * This counts as atomic unless we start doing
 		 * multiprocess approaches for the future harts.
 		 */
-		riskie_csr_writable(ht, csr, rs1);
+		riskie_csr_access(ht, csr, rs1, RISKIE_MEM_LOAD);
+		riskie_csr_access(ht, csr, rs1, RISKIE_MEM_STORE);
 		if (rd != 0)
 			ht->regs.x[rd] = ht->csr[csr];
 		ht->csr[csr] = rs1;
 		break;
 	case RISCV_RV32I_INSTRUCTION_CSRRS:
 	case RISCV_RV32I_INSTRUCTION_CSRRSI:
+		riskie_csr_access(ht, csr, rs1, RISKIE_MEM_LOAD);
 		ht->regs.x[rd] = ht->csr[csr];
+
 		if (rs1 != 0) {
-			riskie_csr_writable(ht, csr, rs1);
+			riskie_csr_access(ht, csr, rs1, RISKIE_MEM_STORE);
 			ht->csr[csr] |= rs1;
 		}
 		break;
 	case RISCV_RV32I_INSTRUCTION_CSRRC:
 	case RISCV_RV32I_INSTRUCTION_CSRRCI:
+		riskie_csr_access(ht, csr, rs1, RISKIE_MEM_LOAD);
 		ht->regs.x[rd] = ht->csr[csr];
+
 		if (rs1 != 0) {
-			riskie_csr_writable(ht, csr, rs1);
+			riskie_csr_access(ht, csr, rs1, RISKIE_MEM_STORE);
 			ht->csr[csr] &= ~rs1;
 		}
 		break;
@@ -1936,11 +1951,9 @@ riskie_opcode_mret(struct hart *ht, u_int32_t instr)
 
 	if (riskie_bit_get(ht->csr[RISCV_CSR_MRW_MSTATUS],
 	    RISCV_MSTATUS_BIT_MPIE)) {
-		printf("interrupts MIE set\n");
 		riskie_bit_set(&ht->csr[RISCV_CSR_MRW_MSTATUS],
 		    RISCV_MSTATUS_BIT_MIE);
 	} else {
-		printf("interrupts MIE cleared\n");
 		riskie_bit_clear(&ht->csr[RISCV_CSR_MRW_MSTATUS],
 		    RISCV_MSTATUS_BIT_MIE);
 	}
