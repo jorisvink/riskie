@@ -53,9 +53,8 @@ static void	hart_opcode_r_type_64(struct hart *, u_int32_t);
 static void	hart_opcode_i_type_32(struct hart *, u_int32_t);
 static void	hart_opcode_i_type_64(struct hart *, u_int32_t);
 
-static void		hart_next_instruction(struct hart *);
-static int		hart_csr_access(struct hart *, u_int16_t,
-			    u_int64_t, int);
+static void	hart_next_instruction(struct hart *);
+static int	hart_csr_access(struct hart *, u_int16_t, u_int64_t, int);
 
 /*
  * Prepare the hart by loading in the image specified in the given path.
