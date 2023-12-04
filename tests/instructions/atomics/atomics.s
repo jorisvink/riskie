@@ -16,7 +16,7 @@ test_entry:
 	bne t0, a1, fail
 
 #	li a3, -1
-#	sb a3, 0x0(a0)
+#	sb a3, 0x3(a0)
 
 	sc.w t0, a2, (a0)
 	beq t0, a1, done

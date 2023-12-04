@@ -1121,10 +1121,6 @@ hart_opcode_atomic(struct hart *ht, u_int32_t instr)
 	rs1 = riskie_instr_rs1(ht, instr);
 	rs2 = riskie_instr_rs2(ht, instr);
 
-	riskie_log(ht,
-	    "ATOMIC, funct3=0x%02x, funct7=0x%02x, rs1=%u, rs2=%u, rd=%u\n",
-	    funct3, funct7, rs1, rs2, rd);
-
 	switch (funct3) {
 	case RISCV_RV32A_FUNCTION_ATOMIC:
 	case RISCV_RV64A_FUNCTION_ATOMIC:
@@ -1135,6 +1131,10 @@ hart_opcode_atomic(struct hart *ht, u_int32_t instr)
 
 	addr = ht->regs.x[rs1];
 	rs2val = ht->regs.x[rs2];
+
+	riskie_log(ht, "ATOMIC, funct3=0x%02x, funct7=0x%02x, rs1=%u, "
+	    "rs2=%u, rd=%u, addr=0x%" PRIx64 "\n",
+	    funct3, funct7, rs1, rs2, rd, addr);
 
 	v64 = riskie_mem_fetch64(ht, ht->regs.x[rs1]);
 	if (funct3 == RISCV_RV32A_FUNCTION_ATOMIC)
