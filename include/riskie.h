@@ -185,10 +185,24 @@
 
 /*
  * "M" instructions, standard extension for multiplication and division.
- * XXX - not all implemented.
+ * XXX - The DIV instructions are not implemented.
  */
 #define RISCV_RV32M_INSTRUCTION_MUL		0x01
 #define RISCV_RV64M_INSTRUCTION_MULW		0x01
+
+/*
+ * "A" instructions, standard extension for atomic instructions.
+ * XXX - Riskie does not support AMOMIN[U].W/D or AMOMAX[U].W/D.
+ */
+#define RISCV_EXT_OPCODE_ATOMIC			0x2f
+#define RISCV_EXT_ATOMIC_INSTRUCTION_ADD	0x00
+#define RISCV_EXT_ATOMIC_INSTRUCTION_SWAP	0x01
+#define RISCV_EXT_ATOMIC_INSTRUCTION_XOR	0x04
+#define RISCV_EXT_ATOMIC_INSTRUCTION_OR		0x08
+#define RISCV_EXT_ATOMIC_INSTRUCTION_AND	0x0c
+
+#define RISCV_RV32A_FUNCTION_ATOMIC		0x02
+#define RISCV_RV64A_FUNCTION_ATOMIC		0x03
 
 /* The supported privilege modes. */
 #define RISKIE_HART_MACHINE_MODE		3

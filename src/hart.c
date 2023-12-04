@@ -47,6 +47,7 @@ static void	hart_opcode_mret(struct hart *, u_int32_t);
 static void	hart_opcode_store(struct hart *, u_int32_t);
 static void	hart_opcode_auipc(struct hart *, u_int32_t);
 static void	hart_opcode_system(struct hart *, u_int32_t);
+static void	hart_opcode_atomic(struct hart *, u_int32_t);
 static void	hart_opcode_b_type(struct hart *, u_int32_t);
 static void	hart_opcode_r_type_32(struct hart *, u_int32_t);
 static void	hart_opcode_r_type_64(struct hart *, u_int32_t);
@@ -245,17 +246,15 @@ hart_csr_access(struct hart *ht, u_int16_t csr, u_int64_t bits, int ls)
 	perm = (csr >> 10) & 0x03;
 	privilege = (csr >> 8) & 0x03;
 
-	if (ht->mode != privilege)
+	if (ht->mode < privilege)
 		riskie_hart_fatal(ht, "unprivileged access to 0x%04x", csr);
 
 	switch (ls) {
 	case RISKIE_MEM_STORE:
-		if (perm != 0 && perm != 2)
+		if (perm == 3)
 			riskie_hart_fatal(ht, "write to ro csr 0x%04x", csr);
 		break;
 	case RISKIE_MEM_LOAD:
-		if (perm == 2)
-			riskie_hart_fatal(ht, "read from wr csr 0x%04x", csr);
 		break;
 	default:
 		riskie_hart_fatal(ht, "unknown ls %d", ls);
@@ -499,6 +498,9 @@ hart_next_instruction(struct hart *ht)
 		hart_opcode_jalr(ht, instr);
 		break;
 	case RISCV_RV32I_INSTRUCTION_FENCE:
+		break;
+	case RISCV_EXT_OPCODE_ATOMIC:
+		hart_opcode_atomic(ht, instr);
 		break;
 	default:
 		riskie_hart_fatal(ht, "illegal instruction 0x%08x", instr);
@@ -1093,6 +1095,74 @@ hart_opcode_r_type_64(struct hart *ht, u_int32_t instr)
 	}
 
 	riskie_log(ht, "   -> reg.%u = %" PRIx64 "\n", rd, ht->regs.x[rd]);
+}
+
+/*
+ * An atomic opcode was found, decode it and perform the correct operation.
+ * In funct3 we find if we're operating on a 32-bit word, or 64-bit double.
+ * We emulate RV64 so the 32-bit words are sign-extended into our 64-bit
+ * registers after we're done operating on them.
+ *
+ * The acquire / release semantics are ignored for now.
+ */
+static void
+hart_opcode_atomic(struct hart *ht, u_int32_t instr)
+{
+	u_int8_t	rs1, rs2, rd;
+	u_int32_t	funct3, funct7;
+	u_int64_t	v64, tmp, addr;
+
+	PRECOND(ht != NULL);
+
+	funct3 = (instr >> 12) & 0x7;
+	funct7 = (instr >> 27) & 0x1f;
+
+	rd = riskie_instr_rd(ht, instr);
+	rs1 = riskie_instr_rs1(ht, instr);
+	rs2 = riskie_instr_rs2(ht, instr);
+
+	riskie_log(ht,
+	    "ATOMIC, funct3=0x%02x, funct7=0x%02x, rs1=%u, rs2=%u, rd=%u\n",
+	    funct3, funct7, rs1, rs2, rd);
+
+	switch (funct3) {
+	case RISCV_RV32A_FUNCTION_ATOMIC:
+	case RISCV_RV64A_FUNCTION_ATOMIC:
+		break;
+	default:
+		riskie_hart_fatal(ht, "unknown atomic 0x%08x", instr);
+	}
+
+	addr = ht->regs.x[rs1];
+	v64 = riskie_mem_fetch64(ht, ht->regs.x[rs1]);
+	ht->regs.x[rd] = v64;
+
+	switch (funct7) {
+	case RISCV_EXT_ATOMIC_INSTRUCTION_OR:
+		v64 = v64 | ht->regs.x[rs2];
+		break;
+	case RISCV_EXT_ATOMIC_INSTRUCTION_ADD:
+		v64 = v64 + ht->regs.x[rs2];
+		break;
+	case RISCV_EXT_ATOMIC_INSTRUCTION_XOR:
+		v64 = v64 ^ ht->regs.x[rs2];
+		break;
+	case RISCV_EXT_ATOMIC_INSTRUCTION_AND:
+		v64 = v64 & ht->regs.x[rs2];
+		break;
+	case RISCV_EXT_ATOMIC_INSTRUCTION_SWAP:
+		tmp = ht->regs.x[rs2];
+		ht->regs.x[rs2] = v64;
+		v64 = tmp;
+		break;
+	default:
+		riskie_hart_fatal(ht, "illegal atomic 0x%08x", instr);
+	}
+
+	if (funct3 == RISCV_RV32A_FUNCTION_ATOMIC)
+		v64 = riskie_sign_extend(v64 & 0xffffffff, 31);
+
+	riskie_mem_store64(ht, addr, v64);
 }
 
 /*
