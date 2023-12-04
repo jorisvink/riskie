@@ -229,6 +229,12 @@ riskie_mem_store(struct hart *ht, u_int64_t addr, u_int64_t value, size_t bits)
 	    "MEM-STORE: addr=0x%" PRIx64 ", value=0x%" PRIx64 ", bits=%zu\n",
 	    addr, value, bits);
 
+	if (ht->lr.valid == 1 && ht->lr.addr == addr) {
+		ht->lr.addr = 0;
+		ht->lr.valid = 0;
+		ht->lr.value = 0;
+	}
+
 	switch (bits) {
 	case 8:
 		riskie_mem_store8(ht, addr, value);

@@ -10,7 +10,8 @@ AS=riscv64-unknown-elf-as
 LD=riscv64-unknown-elf-ld
 OBJCOPY=riscv64-unknown-elf-objcopy
 
-TESTS=	instructions/csr \
+TESTS=	instructions/atomics \
+	instructions/csr \
 	instructions/loads \
 	instructions/interrupts \
 	instructions/timer \

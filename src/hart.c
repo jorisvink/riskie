@@ -1110,7 +1110,7 @@ hart_opcode_atomic(struct hart *ht, u_int32_t instr)
 {
 	u_int8_t	rs1, rs2, rd;
 	u_int32_t	funct3, funct7;
-	u_int64_t	v64, tmp, addr;
+	u_int64_t	v64, tmp, addr, rs2val;
 
 	PRECOND(ht != NULL);
 
@@ -1134,26 +1134,55 @@ hart_opcode_atomic(struct hart *ht, u_int32_t instr)
 	}
 
 	addr = ht->regs.x[rs1];
+	rs2val = ht->regs.x[rs2];
+
 	v64 = riskie_mem_fetch64(ht, ht->regs.x[rs1]);
+	if (funct3 == RISCV_RV32A_FUNCTION_ATOMIC)
+		v64 = riskie_sign_extend(v64 & 0xffffffff, 31);
+
 	ht->regs.x[rd] = v64;
+
+	/*
+	 * LR.W/D handled outside of the switch due to the fact it won't
+	 * actually end up doing a store.
+	 */
+	if (funct7 == RISCV_EXT_ATOMIC_INSTRUCTION_LR) {
+		ht->lr.valid = 1;
+		ht->lr.addr = addr;
+		ht->lr.value = v64;
+		return;
+	}
 
 	switch (funct7) {
 	case RISCV_EXT_ATOMIC_INSTRUCTION_OR:
-		v64 = v64 | ht->regs.x[rs2];
+		v64 = v64 | rs2val;
 		break;
 	case RISCV_EXT_ATOMIC_INSTRUCTION_ADD:
-		v64 = v64 + ht->regs.x[rs2];
+		v64 = v64 + rs2val;
 		break;
 	case RISCV_EXT_ATOMIC_INSTRUCTION_XOR:
-		v64 = v64 ^ ht->regs.x[rs2];
+		v64 = v64 ^ rs2val;
 		break;
 	case RISCV_EXT_ATOMIC_INSTRUCTION_AND:
-		v64 = v64 & ht->regs.x[rs2];
+		v64 = v64 & rs2val;
 		break;
 	case RISCV_EXT_ATOMIC_INSTRUCTION_SWAP:
-		tmp = ht->regs.x[rs2];
+		tmp = rs2val;
 		ht->regs.x[rs2] = v64;
 		v64 = tmp;
+		break;
+	case RISCV_EXT_ATOMIC_INSTRUCTION_SC:
+		if (ht->lr.valid == 0 || ht->lr.addr != addr ||
+		    ht->lr.value != v64) {
+			ht->regs.x[rd] = 1;
+		} else {
+			v64 = rs2val;
+			addr = ht->lr.addr;
+			ht->lr.addr = 0;
+			ht->lr.value = 0;
+			ht->lr.valid = 0;
+			ht->regs.x[rd] = 0;
+		}
 		break;
 	default:
 		riskie_hart_fatal(ht, "illegal atomic 0x%08x", instr);

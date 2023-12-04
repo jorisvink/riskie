@@ -197,6 +197,8 @@
 #define RISCV_EXT_OPCODE_ATOMIC			0x2f
 #define RISCV_EXT_ATOMIC_INSTRUCTION_ADD	0x00
 #define RISCV_EXT_ATOMIC_INSTRUCTION_SWAP	0x01
+#define RISCV_EXT_ATOMIC_INSTRUCTION_LR		0x02
+#define RISCV_EXT_ATOMIC_INSTRUCTION_SC		0x03
 #define RISCV_EXT_ATOMIC_INSTRUCTION_XOR	0x04
 #define RISCV_EXT_ATOMIC_INSTRUCTION_OR		0x08
 #define RISCV_EXT_ATOMIC_INSTRUCTION_AND	0x0c
@@ -257,6 +259,13 @@ struct hart {
 		u_int64_t	mtime;
 		u_int64_t	mtimecmp;
 	} mregs;
+
+	/* Last Load-Reserved address and value. */
+	struct {
+		u_int8_t	valid;
+		u_int64_t	addr;
+		u_int64_t	value;
+	} lr;
 
 	/* Space for control and status registers. */
 	u_int64_t		csr[RISCV_CSR_COUNT];
