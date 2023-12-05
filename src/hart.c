@@ -1172,17 +1172,21 @@ hart_opcode_atomic(struct hart *ht, u_int32_t instr)
 		v64 = tmp;
 		break;
 	case RISCV_EXT_ATOMIC_INSTRUCTION_SC:
-		if (ht->lr.valid == 0 || ht->lr.addr != addr ||
-		    ht->lr.value != v64) {
+		if (ht->lr.valid == 0 ||
+		    ht->lr.addr != addr || ht->lr.value != v64) {
 			ht->regs.x[rd] = 1;
 		} else {
 			v64 = rs2val;
 			addr = ht->lr.addr;
-			ht->lr.addr = 0;
-			ht->lr.value = 0;
-			ht->lr.valid = 0;
 			ht->regs.x[rd] = 0;
 		}
+
+		ht->lr.addr = 0;
+		ht->lr.value = 0;
+		ht->lr.valid = 0;
+
+		if (ht->regs.x[rd] == 1)
+			return;
 		break;
 	default:
 		riskie_hart_fatal(ht, "illegal atomic 0x%08x", instr);

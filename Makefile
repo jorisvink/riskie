@@ -17,7 +17,8 @@ CFLAGS+=-g
 SRC=	src/riskie.c \
 	src/mem.c \
 	src/hart.c \
-	src/instr.c
+	src/instr.c \
+	src/utils.c
 
 ifeq ("$(SANITIZE)", "1")
 	CFLAGS+=-fsanitize=address,undefined

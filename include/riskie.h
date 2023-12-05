@@ -25,11 +25,17 @@
 		}							\
 	} while (0)
 
+/* Maximum number of harts we support running. */
+#define RISKIE_HART_MAX			1
+
 /* The x0 - x31 registers. */
 #define RISCV_REGISTER_COUNT		32
 
 /* Maximum number of CSRs. */
 #define RISCV_CSR_COUNT			4096
+
+/* Traps we use. */
+#define RISCV_TRAP_LOAD_ADDR_MISALIGNED		4
 
 /*
  * RISC-V Control and Status Registers.
@@ -273,15 +279,13 @@ struct hart {
 
 /* src/riskie.c */
 int		riskie_last_signal(void);
-u_int64_t	riskie_sign_extend(u_int32_t, u_int8_t);
-void		riskie_log(struct hart *, const char *, ...)
-		    __attribute__((format (printf, 2, 3)));
 void		fatal(const char *, ...) __attribute__((noreturn));
 
 extern int	riskie_debug;
 
 /* src/hart.c */
 void		riskie_hart_run(struct hart *);
+void		riskie_hart_trap(struct hart *);
 void		riskie_hart_cleanup(struct hart *);
 void		riskie_hart_fatal(struct hart *, const char *, ...)
 		    __attribute__((format (printf, 2, 3)))
@@ -289,10 +293,6 @@ void		riskie_hart_fatal(struct hart *, const char *, ...)
 void		riskie_hart_init(struct hart *, const char *, u_int16_t);
 
 /* src/mem.c */
-u_int8_t	riskie_bit_get(u_int64_t, u_int8_t);
-void		riskie_bit_set(u_int64_t *, u_int8_t);
-void		riskie_bit_clear(u_int64_t *, u_int8_t);
-
 u_int8_t	riskie_mem_fetch8(struct hart *, u_int64_t);
 u_int16_t	riskie_mem_fetch16(struct hart *, u_int64_t);
 u_int32_t	riskie_mem_fetch32(struct hart *, u_int64_t);
@@ -320,4 +320,11 @@ u_int64_t	riskie_instr_imm_j(struct hart *, u_int32_t);
 u_int64_t	riskie_instr_imm_s(struct hart *, u_int32_t);
 u_int64_t	riskie_instr_imm_u(struct hart *, u_int32_t);
 
+/* src/utils.c */
+u_int8_t	riskie_bit_get(u_int64_t, u_int8_t);
+void		riskie_bit_set(u_int64_t *, u_int8_t);
+void		riskie_bit_clear(u_int64_t *, u_int8_t);
+u_int64_t	riskie_sign_extend(u_int32_t, u_int8_t);
+void		riskie_log(struct hart *, const char *, ...)
+		    __attribute__((format (printf, 2, 3)));
 #endif

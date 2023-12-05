@@ -24,39 +24,6 @@
 #include "riskie.h"
 
 /*
- * Set the given bit in the given 64-bit bitmap.
- */
-void
-riskie_bit_set(u_int64_t *bitmap, u_int8_t bit)
-{
-	PRECOND(bit <= 63);
-
-	*bitmap |= ((u_int64_t)1 << bit);
-}
-
-/*
- * Clear the given bit in the given 64-bit bitmap.
- */
-void
-riskie_bit_clear(u_int64_t *bitmap, u_int8_t bit)
-{
-	PRECOND(bit <= 63);
-
-	*bitmap &= ~((u_int64_t)1 << bit);
-}
-
-/*
- * Get the given bit from the given 64-bit bitmap.
- */
-u_int8_t
-riskie_bit_get(u_int64_t bitmap, u_int8_t bit)
-{
-	PRECOND(bit <= 63);
-
-	return ((bitmap >> bit) & 0x01);
-}
-
-/*
  * Fetch 8 bits from the given address in our memory and return it.
  */
 u_int8_t

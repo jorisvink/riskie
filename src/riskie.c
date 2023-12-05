@@ -86,60 +86,6 @@ riskie_last_signal(void)
 }
 
 /*
- * Sign extend the 32-bit value to a 64-bit value.
- */
-u_int64_t
-riskie_sign_extend(u_int32_t value, u_int8_t bit)
-{
-	u_int32_t	idx;
-	u_int64_t	extended;
-
-	PRECOND(bit <= 32);
-
-	if (value & ((u_int32_t)1 << bit)) {
-		extended = value;
-		for (idx = bit + 1; idx <= 63; idx++)
-			extended |= ((u_int64_t)1 << idx);
-		return (extended);
-	}
-
-	return ((u_int64_t)value);
-}
-
-/*
- * Output debug info on stdout if the debug flag was given.
- */
-void
-riskie_log(struct hart *ht, const char *fmt, ...)
-{
-	va_list		args;
-
-	PRECOND(ht != NULL);
-	PRECOND(fmt != NULL);
-
-	if (riskie_debug == 0)
-		return;
-
-	printf("[%02d] ", (u_int8_t)ht->csr[RISCV_CSR_MRO_HART_ID]);
-
-	switch (ht->mode) {
-	case RISKIE_HART_MACHINE_MODE:
-		printf("[M] ");
-		break;
-	case RISKIE_HART_USER_MODE:
-		printf("[U] ");
-		break;
-	default:
-		printf("[?] ");
-		break;
-	}
-
-	va_start(args, fmt);
-	vprintf(fmt, args);
-	va_end(args);
-}
-
-/*
  * Sad juju happened and riskie must die.
  */
 void
