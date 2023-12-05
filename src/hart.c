@@ -962,13 +962,27 @@ hart_opcode_r_type_32(struct hart *ht, u_int32_t instr)
 
 	switch (funct3) {
 	case RISCV_RV32I_INSTRUCTION_OR:
-		ht->regs.x[rd] = ht->regs.x[rs1] | ht->regs.x[rs2];
+		if (funct7 == RISCV_RV32M_INSTRUCTION_REM) {
+			ht->regs.x[rd] = (int64_t)ht->regs.x[rs1] %
+			    (int64_t)ht->regs.x[rs2];
+		} else {
+			ht->regs.x[rd] = ht->regs.x[rs1] | ht->regs.x[rs2];
+		}
 		break;
 	case RISCV_RV32I_INSTRUCTION_XOR:
-		ht->regs.x[rd] = ht->regs.x[rs1] ^ ht->regs.x[rs2];
+		if (funct7 == RISCV_RV32M_INSTRUCTION_DIV) {
+			ht->regs.x[rd] = (int64_t)ht->regs.x[rs1] /
+			    (int64_t)ht->regs.x[rs2];
+		} else {
+			ht->regs.x[rd] = ht->regs.x[rs1] ^ ht->regs.x[rs2];
+		}
 		break;
 	case RISCV_RV32I_INSTRUCTION_AND:
-		ht->regs.x[rd] = ht->regs.x[rs1] & ht->regs.x[rs2];
+		if (funct7 == RISCV_RV32M_INSTRUCTION_REMU) {
+			ht->regs.x[rd] = ht->regs.x[rs1] % ht->regs.x[rs2];
+		} else {
+			ht->regs.x[rd] = ht->regs.x[rs1] & ht->regs.x[rs2];
+		}
 		break;
 	case RISCV_RV32I_INSTRUCTION_SLL:
 		ht->regs.x[rd] = ht->regs.x[rs1] << (ht->regs.x[rs2] & 0x3f);
@@ -1011,6 +1025,9 @@ hart_opcode_r_type_32(struct hart *ht, u_int32_t instr)
 			ht->regs.x[rd] = ht->regs.x[rs1] >>
 			    (ht->regs.x[rs2] & 0x3f);
 			ht->regs.x[rd] |= sbit << 63;
+			break;
+		case RISCV_RV32M_INSTRUCTION_DIVU:
+			ht->regs.x[rd] = ht->regs.x[rs1] / ht->regs.x[rs2];
 			break;
 		default:
 			riskie_hart_fatal(ht, "illegal sr 0x%08x", instr);
@@ -1075,6 +1092,18 @@ hart_opcode_r_type_64(struct hart *ht, u_int32_t instr)
 			riskie_hart_fatal(ht, "illegal addsub 0x%08x", instr);
 		}
 		break;
+	case RISCV_RV64M_INSTRUCTION_DIVW:
+		v32 = (int32_t)ht->regs.x[rs1] / (int32_t)ht->regs.x[rs2];
+		ht->regs.x[rd] = riskie_sign_extend(v32, 31);
+		break;
+	case RISCV_RV64M_INSTRUCTION_REMW:
+		v32 = (int32_t)ht->regs.x[rs1] % (int32_t)ht->regs.x[rs2];
+		ht->regs.x[rd] = riskie_sign_extend(v32, 31);
+		break;
+	case RISCV_RV64M_INSTRUCTION_REMUW:
+		ht->regs.x[rd] = (u_int32_t)ht->regs.x[rs1] %
+		    (u_int32_t)ht->regs.x[rs2];
+		break;
 	case RISCV_RV64I_FUNCTION_SRW:
 		switch (funct7) {
 		case RISCV_RV64I_INSTRUCTION_SRLW:
@@ -1087,9 +1116,14 @@ hart_opcode_r_type_64(struct hart *ht, u_int32_t instr)
 			ht->regs.x[rd] = v32 >> (ht->regs.x[rs2] & 0xf);
 			ht->regs.x[rd] |= sbit << 31;
 			break;
+		case RISCV_RV64M_INSTRUCTION_DIVUW:
+			ht->regs.x[rd] = (u_int32_t)ht->regs.x[rs1] /
+			    (u_int32_t)ht->regs.x[rs2];
+			break;
 		default:
-			riskie_hart_fatal(ht, "illegal sri 0x%08x", instr);
+			riskie_hart_fatal(ht, "illegal srw 0x%08x", instr);
 		}
+		break;
 	default:
 		riskie_hart_fatal(ht, "illegal r-type 0x%08x", instr);
 	}

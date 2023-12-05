@@ -13,6 +13,7 @@ OBJCOPY=riscv64-unknown-elf-objcopy
 TESTS=	instructions/atomics \
 	instructions/csr \
 	instructions/loads \
+	instructions/math \
 	instructions/interrupts \
 	instructions/timer \
 	instructions/umode

@@ -191,10 +191,19 @@
 
 /*
  * "M" instructions, standard extension for multiplication and division.
- * XXX - The DIV instructions are not implemented.
+ * Some of these encode funct3, others encode funct7.
  */
 #define RISCV_RV32M_INSTRUCTION_MUL		0x01
+#define RISCV_RV32M_INSTRUCTION_DIV		0x01
+#define RISCV_RV32M_INSTRUCTION_DIVU		0x01
+#define RISCV_RV32M_INSTRUCTION_REM		0x01
+#define RISCV_RV32M_INSTRUCTION_REMU		0x01
+
 #define RISCV_RV64M_INSTRUCTION_MULW		0x01
+#define RISCV_RV64M_INSTRUCTION_DIVW		0x04
+#define RISCV_RV64M_INSTRUCTION_DIVUW		0x01
+#define RISCV_RV64M_INSTRUCTION_REMW		0x06
+#define RISCV_RV64M_INSTRUCTION_REMUW		0x07
 
 /*
  * "A" instructions, standard extension for atomic instructions.
