@@ -27,6 +27,8 @@
 
 #include "riskie.h"
 
+#define MISA(c)		(c - 'A')
+
 static void	hart_timer_next(struct hart *);
 static void	hart_validate_pc(struct hart *);
 static void	hart_environment_call(struct hart *);
@@ -69,6 +71,15 @@ riskie_hart_init(struct hart *ht, u_int64_t pc, u_int16_t hid)
 
 	ht->csr[RISCV_CSR_MRO_HART_ID] = hid;
 	ht->csr[RISCV_CSR_MRO_VENDOR_ID] = 0x20231021;
+
+	riskie_bit_set(&ht->csr[RISCV_CSR_MRW_MISA], 62);
+	riskie_bit_set(&ht->csr[RISCV_CSR_MRW_MISA], 63);
+
+	riskie_bit_set(&ht->csr[RISCV_CSR_MRW_MISA], MISA('A'));
+	riskie_bit_set(&ht->csr[RISCV_CSR_MRW_MISA], MISA('I'));
+	riskie_bit_set(&ht->csr[RISCV_CSR_MRW_MISA], MISA('M'));
+	riskie_bit_set(&ht->csr[RISCV_CSR_MRW_MISA], MISA('U'));
+	riskie_bit_set(&ht->csr[RISCV_CSR_MRW_MISA], MISA('S'));
 
 	riskie_bit_set(&ht->csr[RISCV_CSR_MRW_MSTATUS], RISCV_MSTATUS_BIT_MPIE);
 }
@@ -163,27 +174,62 @@ hart_validate_pc(struct hart *ht)
 /*
  * Check permissions for the given CSR against our current privilege
  * mode and wether or not we are trying to read / write.
- *
- * XXX - if it fails we do a hard fail right now.
  */
 static int
 hart_csr_access(struct hart *ht, u_int16_t csr, u_int64_t bits, int ls)
 {
+	u_int16_t	ret;
 	int		fail;
 	u_int8_t	perm, privilege;
 
 	PRECOND(ht != NULL);
 
+	ret = RISKIE_CSR_INVALID;
+
+	/* We only allow access to CSRs we know. */
+	switch (csr) {
+	case RISCV_CSR_MRW_MIE:
+	case RISCV_CSR_MRW_MIP:
+	case RISCV_CSR_MRW_MISA:
+	case RISCV_CSR_MRW_MEPC:
+	case RISCV_CSR_MRW_MTVAL:
+	case RISCV_CSR_MRW_MTVEC:
+	case RISCV_CSR_MRW_MCAUSE:
+	case RISCV_CSR_MRW_MSTATUS:
+	case RISCV_CSR_MRW_MSCRATCH:
+	case RISCV_CSR_MRW_MCOUNTEREN:
+		ret = csr;
+		break;
+	case RISCV_CSR_MRO_HART_ID:
+	case RISCV_CSR_MRO_VENDOR_ID:
+	case RISCV_CSR_MRO_ARCHITECTURE_ID:
+	case RISCV_CSR_MRO_IMPLEMENTATION_ID:
+		ret = csr;
+		break;
+	}
+
+	if (ret == RISKIE_CSR_INVALID) {
+		riskie_log(ht, "CSR: invalid CSR 0x%04x\n", csr);
+		hart_trap_machine(ht, 1);
+		return (-1);
+	}
+
 	perm = (csr >> 10) & 0x03;
 	privilege = (csr >> 8) & 0x03;
 
-	if (ht->mode < privilege)
-		riskie_hart_fatal(ht, "unprivileged access to 0x%04x", csr);
+	if (ht->mode < privilege) {
+		riskie_log(ht, "CSR: unprivileged access to 0x%04x\n", csr);
+		hart_trap_machine(ht, 1);
+		return (-1);
+	}
 
 	switch (ls) {
 	case RISKIE_MEM_STORE:
-		if (perm == 3)
-			riskie_hart_fatal(ht, "write to ro csr 0x%04x", csr);
+		if (perm == 3) {
+			riskie_log(ht, "CSR: write to ro csr 0x%04x\n", csr);
+			hart_trap_machine(ht, 1);
+			return (-1);
+		}
 		break;
 	case RISKIE_MEM_LOAD:
 		break;
@@ -192,7 +238,7 @@ hart_csr_access(struct hart *ht, u_int16_t csr, u_int64_t bits, int ls)
 	}
 
 	if (bits == 0)
-		return (1);
+		return (0);
 
 	fail = 0;
 
@@ -201,6 +247,9 @@ hart_csr_access(struct hart *ht, u_int16_t csr, u_int64_t bits, int ls)
 	 * by software.
 	 */
 	switch (csr) {
+	case RISCV_CSR_MRW_MISA:
+		fail++;
+		break;
 	case RISCV_CSR_MRW_MIP:
 		if (riskie_bit_get(bits, RISCV_TRAP_BIT_MEI))
 			fail++;
@@ -211,8 +260,11 @@ hart_csr_access(struct hart *ht, u_int16_t csr, u_int64_t bits, int ls)
 		break;
 	}
 
-	if (fail)
-		riskie_hart_fatal(ht, "write to ro-bit csr 0x%04x", csr);
+	if (fail) {
+		riskie_log(ht, "CSR: write to ro-bit csr 0x%04x\n", csr);
+		hart_trap_machine(ht, 1);
+		return (-1);
+	}
 
 	return (0);
 }
@@ -586,11 +638,21 @@ hart_opcode_system(struct hart *ht, u_int32_t instr)
 	case RISCV_RV32I_INSTRUCTION_CSRRS:
 	case RISCV_RV32I_INSTRUCTION_CSRRC:
 		rs1 = ht->regs.x[rs1];
+		if (hart_csr_access(ht, csr, rs1, RISKIE_MEM_LOAD) == -1)
+			return;
 		break;
 	case RISCV_RV32I_INSTRUCTION_CSRRWI:
 	case RISCV_RV32I_INSTRUCTION_CSRRSI:
 	case RISCV_RV32I_INSTRUCTION_CSRRCI:
 		rs1 = rs1 & 0xf;
+		if (hart_csr_access(ht, csr, rs1, RISKIE_MEM_LOAD) == -1)
+			return;
+
+		if (funct3 == RISCV_RV32I_INSTRUCTION_CSRRWI || rs1 != 0) {
+			if (hart_csr_access(ht,
+			    csr, rs1, RISKIE_MEM_STORE) == -1)
+				return;
+		}
 		break;
 	}
 
@@ -637,31 +699,23 @@ hart_opcode_system(struct hart *ht, u_int32_t instr)
 		 * This counts as atomic unless we start doing
 		 * multiprocess approaches for the future harts.
 		 */
-		hart_csr_access(ht, csr, rs1, RISKIE_MEM_LOAD);
-		hart_csr_access(ht, csr, rs1, RISKIE_MEM_STORE);
+		if (hart_csr_access(ht, csr, rs1, RISKIE_MEM_STORE) == -1)
+			break;
 		if (rd != 0)
 			ht->regs.x[rd] = ht->csr[csr];
 		ht->csr[csr] = rs1;
 		break;
 	case RISCV_RV32I_INSTRUCTION_CSRRS:
 	case RISCV_RV32I_INSTRUCTION_CSRRSI:
-		hart_csr_access(ht, csr, rs1, RISKIE_MEM_LOAD);
 		ht->regs.x[rd] = ht->csr[csr];
-
-		if (rs1 != 0) {
-			hart_csr_access(ht, csr, rs1, RISKIE_MEM_STORE);
+		if (rs1 != 0)
 			ht->csr[csr] |= rs1;
-		}
 		break;
 	case RISCV_RV32I_INSTRUCTION_CSRRC:
 	case RISCV_RV32I_INSTRUCTION_CSRRCI:
-		hart_csr_access(ht, csr, rs1, RISKIE_MEM_LOAD);
 		ht->regs.x[rd] = ht->csr[csr];
-
-		if (rs1 != 0) {
-			hart_csr_access(ht, csr, rs1, RISKIE_MEM_STORE);
+		if (rs1 != 0)
 			ht->csr[csr] &= ~rs1;
-		}
 		break;
 	default:
 		riskie_hart_fatal(ht, "illegal system 0x%08x", instr);

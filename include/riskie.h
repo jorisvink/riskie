@@ -50,11 +50,17 @@
 /* The machine status. */
 #define RISCV_CSR_MRW_MSTATUS		0x300
 
+/* The supported instructions csr. */
+#define RISCV_CSR_MRW_MISA		0x301
+
 /* Vector base address and traps. */
 #define RISCV_CSR_MRW_MIE		0x304
 #define RISCV_CSR_MRW_MTVEC		0x305
+#define RISCV_CSR_MRW_MCOUNTEREN	0x306
+#define RISCV_CSR_MRW_MSCRATCH		0x340
 #define RISCV_CSR_MRW_MEPC		0x341
 #define RISCV_CSR_MRW_MCAUSE		0x342
+#define RISCV_CSR_MRW_MTVAL		0x343
 #define RISCV_CSR_MRW_MIP		0x344
 
 /*
@@ -222,6 +228,9 @@
 
 #define RISCV_RV32A_FUNCTION_ATOMIC		0x02
 #define RISCV_RV64A_FUNCTION_ATOMIC		0x03
+
+/* Indicator that a CSR access is invalid. */
+#define RISKIE_CSR_INVALID		(u_int16_t)-1
 
 /* The supported privilege modes. */
 #define RISKIE_HART_MACHINE_MODE		3
