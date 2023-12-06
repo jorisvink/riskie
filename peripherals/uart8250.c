@@ -23,15 +23,30 @@
 
 /*
  * A UART8250 peripheral for use in Riskie.
+ * Implements the *bare* minimum to dump data to screen.
  */
 
-#define UART8250_REG_SIZE	8
+/* Number of registers we have. */
+#define UART8250_REG_SIZE		8
+
+/* The Transmission Holding Register. */
+#define UART8250_REG_THR		0
+
+/* The Line Status Register. */
+#define UART8250_REG_LSR		5
+
+/* LSR, transmit holding register empty. */
+#define UART8250_LSR_TX_REG_EMPTY	0x20
+
+/* LSR, transmitter empty. */
+#define UART8250_LSR_TX_EMPTY		0x40
 
 struct state {
 	u_int64_t	regs[UART8250_REG_SIZE];
 };
 
 static void	uart8250_tick(struct peripheral *);
+static void	uart8250_transmission_ready(struct state *);
 
 /*
  * Riskie will call us when we are loaded, passing the peripheral context.
@@ -48,8 +63,8 @@ peripheral_init(struct peripheral *perp)
 
 	st = (struct state *)perp->mem.ptr;
 
-	/* Set transmit hold-register empty. */
-	st->regs[5] = 1 << 5;
+	/* Allow transmission. */
+	uart8250_transmission_ready(st);
 
 	/* We setup a callback so we're executed every emulation step. */
 	perp->tick = uart8250_tick;
@@ -76,27 +91,29 @@ peripheral_io(struct peripheral_io_req *io)
 		return (NULL);
 
 	st = (struct state *)io->perp->mem.ptr;
-
 	reg = (io->addr - io->perp->mem.base) & 0xff;
 
-	switch (reg) {
-	case 0:
-		if (io->ls == RISKIE_MEM_STORE)
-			st->regs[5] &= ~(1 << 5);
-		break;
-	case 1:
-	case 2:
-	case 3:
-	case 4:
-	case 5:
-	case 6:
-	case 7:
-		break;
-	default:
-		fatal("%s: unknown register %u\n", __func__, reg);
-	}
+	/*
+	 * Indicate that the TX is busy so that we can pick it up
+	 * at the next uart8250_tick and dump it.
+	 */
+	if (io->ls == RISKIE_MEM_STORE && reg == UART8250_REG_THR)
+		st->regs[UART8250_REG_LSR] = 0;
 
 	return ((u_int8_t *)&st->regs[reg]);
+}
+
+/*
+ * Helper function that sets the required bits so drivers know
+ * they can transmit the next byte.
+ */
+static void
+uart8250_transmission_ready(struct state *st)
+{
+	PRECOND(st != NULL);
+
+	st->regs[UART8250_REG_LSR] = UART8250_LSR_TX_REG_EMPTY |
+	    UART8250_LSR_TX_EMPTY;
 }
 
 /*
@@ -111,9 +128,12 @@ uart8250_tick(struct peripheral *perp)
 
 	st = (struct state *)perp->mem.ptr;
 
-	/* If we are holding a TX value, dump it to stdout. */
-	if ((st->regs[5] & (1 << 5)) == 0) {
+	/*
+	 * If we have data in our TX holding register, print it and
+	 * allow for the next byte.
+	 */
+	if ((st->regs[UART8250_REG_LSR] & UART8250_LSR_TX_REG_EMPTY) == 0) {
 		printf("%c", (u_int8_t)st->regs[0]);
-		st->regs[5] |= 1 << 5;
+		uart8250_transmission_ready(st);
 	}
 }
