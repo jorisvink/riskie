@@ -30,13 +30,13 @@ static void	riskie_sig_handler(int);
 /* Last received signal. */
 static volatile sig_atomic_t	sig_recv = -1;
 
-/* Are we running with debug mode or not. */
-int		riskie_debug = 0;
+/* The global context. */
+struct riskie	*riskie = NULL;
 
 static void
 usage(void)
 {
-	fprintf(stderr, "Usage: riskie [-d] [binary]\n");
+	fprintf(stderr, "Usage: riskie [-c config] [-d] [binary]\n");
 	exit(1);
 }
 
@@ -45,11 +45,24 @@ main(int argc, char *argv[])
 {
 	int		ch;
 	struct hart	ht;
+	const char	*config;
 
-	while ((ch = getopt(argc, argv, "d")) != -1) {
+	config = NULL;
+
+	/* XXX - place in shm later when doing multiple hart procs. */
+	if ((riskie = calloc(1, sizeof(*riskie))) == NULL)
+		fatal("calloc: failed");
+
+	riskie->mem.size = RISKIE_DEFAULT_MEM_SIZE;
+	riskie->mem.base = RISKIE_DEFAULT_MEM_BASE_ADDR;
+
+	while ((ch = getopt(argc, argv, "c:d")) != -1) {
 		switch (ch) {
+		case 'c':
+			config = optarg;
+			break;
 		case 'd':
-			riskie_debug = 1;
+			riskie->debug = 1;
 			break;
 		default:
 			usage();
@@ -62,9 +75,14 @@ main(int argc, char *argv[])
 	if (argc != 1)
 		usage();
 
+	riskie_peripheral_init();
+
+	if (config != NULL)
+		riskie_config_load(config);
+
 	riskie_trap_signal(SIGINT);
 
-	riskie_hart_init(&ht, argv[0], 0);
+	riskie_hart_init(&ht, argv[0], riskie->mem.base, 0);
 	riskie_hart_run(&ht);
 	riskie_hart_cleanup(&ht);
 

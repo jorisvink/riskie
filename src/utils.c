@@ -88,7 +88,7 @@ riskie_log(struct hart *ht, const char *fmt, ...)
 	PRECOND(ht != NULL);
 	PRECOND(fmt != NULL);
 
-	if (riskie_debug == 0)
+	if (riskie->debug == 0)
 		return;
 
 	printf("[%02d] ", (u_int8_t)ht->csr[RISCV_CSR_MRO_HART_ID]);

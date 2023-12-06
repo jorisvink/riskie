@@ -232,46 +232,30 @@ riskie_mem_store(struct hart *ht, u_int64_t addr, u_int64_t value, size_t bits)
 u_int8_t *
 riskie_mem_validate_access(struct hart *ht, u_int64_t addr, size_t len, int ls)
 {
-	u_int8_t	*ptr;
+	u_int8_t		*ptr;
+	struct peripheral	*perp;
 
 	PRECOND(ht != NULL);
 	PRECOND(ls == RISKIE_MEM_STORE || ls == RISKIE_MEM_LOAD);
 
 	ptr = NULL;
 
-	/*
-	 * Check for memory mapped registers or any other peripheral
-	 * memory space first.
-	 */
-	switch (addr) {
-	case RISKIE_MEM_REG_MTIME:
-		if (ht->mode == RISKIE_HART_MACHINE_MODE)
-			ptr = (u_int8_t *)&ht->mregs.mtime;
-		break;
-	case RISKIE_MEM_REG_MTIMECMP:
-		if (ht->mode == RISKIE_HART_MACHINE_MODE) {
-			if (ls == RISKIE_MEM_STORE) {
-				riskie_bit_set(&ht->flags,
-				    RISKIE_HART_FLAG_MTIMECMP);
-			}
-			ptr = (u_int8_t *)&ht->mregs.mtimecmp;
-		}
-		break;
-	}
-
-	if (ptr != NULL)
+	/* Check for peripherals first. */
+	if ((perp = riskie_peripheral_from_addr(addr)) != NULL) {
+		ptr = perp->validate_mem_access(ht, addr, len, ls);
 		return (ptr);
+	}
 
 	/*
 	 * If the address requested is not located in main memory we don't
 	 * know what to do with it at this point.
 	 */
-	if (addr < RISKIE_MEM_BASE_ADDR) {
+	if (addr < riskie->mem.base) {
 		riskie_hart_fatal(ht,
 		    "memory address 0x%" PRIx64 " invalid", addr);
 	}
 
-	if (addr >= (RISKIE_MEM_BASE_ADDR + RISKIE_MEM_SIZE)) {
+	if (addr >= (riskie->mem.base + riskie->mem.size)) {
 		riskie_hart_fatal(ht,
 		    "memory access at 0x%" PRIx64 " out of bounds", addr);
 	}
@@ -279,12 +263,12 @@ riskie_mem_validate_access(struct hart *ht, u_int64_t addr, size_t len, int ls)
 	if (addr + len < addr)
 		riskie_hart_fatal(ht, "memory access overflow");
 
-	if ((addr + len) > (RISKIE_MEM_BASE_ADDR + RISKIE_MEM_SIZE)) {
+	if ((addr + len) > (riskie->mem.base + riskie->mem.size)) {
 		riskie_hart_fatal(ht,
 		    "memory access at 0x%" PRIx64 " out of bounds", addr);
 	}
 
-	ptr = &ht->mem[addr - RISKIE_MEM_BASE_ADDR];
+	ptr = &ht->mem[addr - riskie->mem.base];
 
 	return (ptr);
 }

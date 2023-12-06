@@ -15,9 +15,11 @@ CFLAGS+=-fstack-protector-all -Wtype-limits -fno-common -Iinclude
 CFLAGS+=-g
 
 SRC=	src/riskie.c \
+	src/config.c \
 	src/mem.c \
 	src/hart.c \
 	src/instr.c \
+	src/peripheral.c \
 	src/utils.c
 
 ifeq ("$(SANITIZE)", "1")

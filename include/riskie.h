@@ -17,6 +17,8 @@
 #ifndef __H_RISKIE_H
 #define __H_RISKIE_H
 
+#include <sys/queue.h>
+
 #define PRECOND(x)							\
 	do {								\
 		if (!(x)) {						\
@@ -237,11 +239,11 @@
 #define RISKIE_MEM_STORE		1
 #define RISKIE_MEM_LOAD			2
 
-/* The base address where RAM is located and code is executed from. */
-#define RISKIE_MEM_BASE_ADDR		0x80000000
+/* The default base address where RAM is located and code is executed from. */
+#define RISKIE_DEFAULT_MEM_BASE_ADDR	0x80000000
 
-/* The size of our main memory (128MB). */
-#define RISKIE_MEM_SIZE			(1 << 27)
+/* The default size of our main memory (128MB). */
+#define RISKIE_DEFAULT_MEM_SIZE		(1 << 27)
 
 /*
  * Internal flags bits.
@@ -286,11 +288,44 @@ struct hart {
 	u_int64_t		csr[RISCV_CSR_COUNT];
 };
 
+/*
+ * A peripheral that is accessible via a certain memory mapped
+ * address space or register.
+ *
+ * STORE/LOAD operations to this address range is redirected to
+ * the peripheral itself.
+ */
+struct peripheral {
+	struct {
+		u_int64_t	base;
+		size_t		size;
+	} mem;
+
+	/* Called when access occurs. */
+	u_int8_t	*(*validate_mem_access)(struct hart *,
+			    u_int64_t, size_t, int);
+
+	LIST_ENTRY(peripheral)	list;
+};
+
+/*
+ * Global context while riskie is running.
+ */
+struct riskie {
+	/* Are we running under debug? */
+	int			debug;
+
+	struct {
+		u_int64_t	base;
+		size_t		size;
+	} mem;
+};
+
 /* src/riskie.c */
 int		riskie_last_signal(void);
 void		fatal(const char *, ...) __attribute__((noreturn));
 
-extern int	riskie_debug;
+extern struct riskie	*riskie;
 
 /* src/hart.c */
 void		riskie_hart_run(struct hart *);
@@ -299,7 +334,11 @@ void		riskie_hart_cleanup(struct hart *);
 void		riskie_hart_fatal(struct hart *, const char *, ...)
 		    __attribute__((format (printf, 2, 3)))
 		    __attribute__((noreturn));
-void		riskie_hart_init(struct hart *, const char *, u_int16_t);
+void		riskie_hart_init(struct hart *, const char *,
+		    u_int64_t, u_int16_t);
+
+/* src/config.c */
+void		riskie_config_load(const char *);
 
 /* src/mem.c */
 u_int8_t	riskie_mem_fetch8(struct hart *, u_int64_t);
@@ -329,6 +368,14 @@ u_int64_t	riskie_instr_imm_j(struct hart *, u_int32_t);
 u_int64_t	riskie_instr_imm_s(struct hart *, u_int32_t);
 u_int64_t	riskie_instr_imm_u(struct hart *, u_int32_t);
 
+/* src/peripheral.c */
+void		riskie_peripheral_init(void);
+void		riskie_peripheral_load(const char *, u_int64_t, size_t);
+void		riskie_peripheral_add(u_int64_t, size_t,
+		    u_int8_t *(*cb)(struct hart *, u_int64_t, size_t, int));
+
+struct peripheral	*riskie_peripheral_from_addr(u_int64_t);
+
 /* src/utils.c */
 u_int8_t	riskie_bit_get(u_int64_t, u_int8_t);
 void		riskie_bit_set(u_int64_t *, u_int8_t);
@@ -336,4 +383,5 @@ void		riskie_bit_clear(u_int64_t *, u_int8_t);
 u_int64_t	riskie_sign_extend(u_int32_t, u_int8_t);
 void		riskie_log(struct hart *, const char *, ...)
 		    __attribute__((format (printf, 2, 3)));
+
 #endif

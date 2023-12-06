@@ -17,6 +17,7 @@
 #include <sys/types.h>
 #include <sys/stat.h>
 
+#include <errno.h>
 #include <fcntl.h>
 #include <inttypes.h>
 #include <stdarg.h>
@@ -61,7 +62,7 @@ static int	hart_csr_access(struct hart *, u_int16_t, u_int64_t, int);
  * Prepare the hart by loading in the image specified in the given path.
  */
 void
-riskie_hart_init(struct hart *ht, const char *path, u_int16_t hid)
+riskie_hart_init(struct hart *ht, const char *path, u_int64_t pc, u_int16_t hid)
 {
 	int			fd;
 	struct stat		st;
@@ -72,7 +73,7 @@ riskie_hart_init(struct hart *ht, const char *path, u_int16_t hid)
 
 	memset(ht, 0, sizeof(*ht));
 
-	if ((ht->mem = calloc(1, RISKIE_MEM_SIZE)) == NULL)
+	if ((ht->mem = calloc(1, riskie->mem.size)) == NULL)
 		fatal("calloc");
 
 	if ((fd = open(path, O_RDONLY)) == -1)
@@ -81,7 +82,7 @@ riskie_hart_init(struct hart *ht, const char *path, u_int16_t hid)
 	if (fstat(fd, &st) == -1)
 		fatal("fstat: %s", path);
 
-	if (st.st_size > RISKIE_MEM_SIZE)
+	if ((size_t)st.st_size > riskie->mem.size)
 		fatal("image doesn't fit in memory");
 
 	if ((ret = read(fd, ht->mem, st.st_size)) == -1)
@@ -92,16 +93,13 @@ riskie_hart_init(struct hart *ht, const char *path, u_int16_t hid)
 	if (ret != st.st_size)
 		fatal("failed to read, only got %zd/%zd", ret, st.st_size);
 
-	ht->regs.pc = RISKIE_MEM_BASE_ADDR;
+	ht->regs.pc = pc;
 	ht->mode = RISKIE_HART_MACHINE_MODE;
 
 	ht->csr[RISCV_CSR_MRO_HART_ID] = hid;
 	ht->csr[RISCV_CSR_MRO_VENDOR_ID] = 0x20231021;
 
 	riskie_bit_set(&ht->csr[RISCV_CSR_MRW_MSTATUS], RISCV_MSTATUS_BIT_MPIE);
-
-	riskie_log(ht, "loaded %zd byte image at 0x%u\n",
-	    ret, RISKIE_MEM_BASE_ADDR);
 }
 
 /*
@@ -166,13 +164,16 @@ riskie_hart_fatal(struct hart *ht, const char *fmt, ...)
 
 	fprintf(stderr, "\n");
 
-	if (riskie_debug) {
+	if (riskie->debug) {
 		fd = open("riskie.mem", O_CREAT | O_TRUNC | O_WRONLY, 0700);
 		if (fd != -1) {
-			ret = write(fd, ht->mem, RISKIE_MEM_SIZE);
-			if (ret != RISKIE_MEM_SIZE) {
-				printf("failed to write all memory (%zd/%d)\n",
-				    ret, RISKIE_MEM_SIZE);
+			ret = write(fd, ht->mem, riskie->mem.size);
+			if (ret == -1) {
+				printf("error writing memory to disk: %s\n",
+				    strerror(errno));
+			} else if ((size_t)ret != riskie->mem.size) {
+				printf("failed to write all memory (%zd/%zu)\n",
+				    ret, riskie->mem.size);
 			}
 
 			(void)close(fd);
@@ -216,11 +217,6 @@ hart_validate_pc(struct hart *ht)
 
 	if (ht->regs.pc + sizeof(u_int32_t) < ht->regs.pc)
 		riskie_hart_fatal(ht, "pc wrap around");
-
-	if (ht->regs.pc + sizeof(u_int32_t) >
-	    (RISKIE_MEM_BASE_ADDR + RISKIE_MEM_SIZE)) {
-		riskie_hart_fatal(ht, "pc out of bounds");
-	}
 
 	/* XXX - todo, check R and X bit. */
 	switch (ht->mode) {
@@ -936,10 +932,11 @@ hart_opcode_i_type_64(struct hart *ht, u_int32_t instr)
 
 /*
  * The register to register instructions as part of the
- * "Integer Computational Instructions" instruction set.
+ * "Integer Computational Instructions" and "Standard Extension for integer
+ * multiplication and division" instruction sets.
  *
- * Note that while these are part of the RV32I instruction set, they
- * operate on XLEN bits, and thus 64-bit.
+ * Note that while these are part of the RV32I/RV32M instruction set,
+ * they operate on XLEN bits, and thus 64-bit.
  */
 static void
 hart_opcode_r_type_32(struct hart *ht, u_int32_t instr)
@@ -1042,11 +1039,12 @@ hart_opcode_r_type_32(struct hart *ht, u_int32_t instr)
 
 /*
  * The register to register instructions as part of the
- * "Integer Computational Instructions" instruction set.
+ * "Integer Computational Instructions" and "Standard extension for integer
+ * multiplication and division" instruction sets.
  *
- * This function handles decoding of instructions that are part of RV64I.
+ * This function handles decoding of instructions that are part of RV64I/RV64M.
  *
- * Note that while these are part of the RV64I instruction set, these
+ * Note that while these are part of the RV64I/RV64M instruction set, these
  * instructions implement the *.W variants and thus operate on 32-bit.
  */
 static void
