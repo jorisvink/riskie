@@ -1058,7 +1058,7 @@ hart_opcode_r_type_64(struct hart *ht, u_int32_t instr)
 	switch (funct3) {
 	case RISCV_RV64I_INSTRUCTION_SLLW:
 		ht->regs.x[rd] = (u_int32_t)(ht->regs.x[rs1] <<
-		    (ht->regs.x[rs2] & 0xf));
+		    (ht->regs.x[rs2] & 0x1f));
 		break;
 	case RISCV_RV64I_FUNCTION_ADD_SUB:
 		switch (funct7) {
@@ -1095,12 +1095,12 @@ hart_opcode_r_type_64(struct hart *ht, u_int32_t instr)
 		switch (funct7) {
 		case RISCV_RV64I_INSTRUCTION_SRLW:
 			v32 = ht->regs.x[rs1];
-			ht->regs.x[rd] = v32 >> (ht->regs.x[rs2] & 0xf);
+			ht->regs.x[rd] = v32 >> (ht->regs.x[rs2] & 0x1f);
 			break;
 		case RISCV_RV64I_INSTRUCTION_SRAW:
 			v32 = ht->regs.x[rs1];
 			sbit = v32 >> 31;
-			ht->regs.x[rd] = v32 >> (ht->regs.x[rs2] & 0xf);
+			ht->regs.x[rd] = v32 >> (ht->regs.x[rs2] & 0x1f);
 			ht->regs.x[rd] |= sbit << 31;
 			break;
 		case RISCV_RV64M_INSTRUCTION_DIVUW:
