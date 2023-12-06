@@ -319,9 +319,7 @@ riskie_mem_validate_access(struct hart *ht, u_int64_t addr, size_t len, int ls)
 		io.addr = addr;
 		io.perp = perp;
 
-		ptr = perp->io(&io);
-
-		if (ptr == NULL) {
+		if ((ptr = perp->io(&io)) == NULL) {
 			riskie_bit_set(&ht->flags,
 			    RISKIE_HART_FLAG_MEM_VIOLATION);
 		}
