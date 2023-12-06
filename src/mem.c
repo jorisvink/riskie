@@ -15,13 +15,82 @@
  */
 
 #include <sys/types.h>
+#include <sys/stat.h>
 
+#include <errno.h>
+#include <fcntl.h>
 #include <inttypes.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <unistd.h>
 
 #include "riskie.h"
+
+/*
+ * Initialise the main memory, and load the to be executed binary
+ * from the given path.
+ */
+void
+riskie_mem_init(const char *path)
+{
+	int			fd;
+	struct stat		st;
+	ssize_t			ret;
+
+	PRECOND(path != NULL);
+	PRECOND(soc->mem.ptr == NULL);
+
+	if ((soc->mem.ptr = calloc(1, soc->mem.size)) == NULL)
+		fatal("calloc: failed to allocate %zu", soc->mem.size);
+
+	if ((fd = open(path, O_RDONLY)) == -1)
+		fatal("open: %s", path);
+
+	if (fstat(fd, &st) == -1)
+		fatal("fstat: %s", path);
+
+	if ((size_t)st.st_size > soc->mem.size)
+		fatal("image doesn't fit in memory");
+
+	if ((ret = read(fd, soc->mem.ptr, st.st_size)) == -1)
+		fatal("read");
+
+	close(fd);
+
+	if (ret != st.st_size)
+		fatal("failed to read, only got %zd/%zd", ret, st.st_size);
+}
+
+/*
+ * Dump memory to disk for inspection later. If we cannot dump, we print
+ * out errors, we cannot call fatal (we may be coming from there).
+ */
+void
+riskie_mem_dump(void)
+{
+	int		fd;
+	ssize_t		ret;
+
+	PRECOND(soc != NULL);
+
+	if (soc->mem.ptr == NULL)
+		return;
+
+	fd = open("riskie.mem", O_CREAT | O_TRUNC | O_WRONLY, 0700);
+	if (fd != -1) {
+		ret = write(fd, soc->mem.ptr, soc->mem.size);
+		if (ret == -1) {
+			printf("error writing memory to disk: %s\n",
+			    strerror(errno));
+		} else if ((size_t)ret != soc->mem.size) {
+			printf("failed to write all memory (%zd/%zu)\n",
+			    ret, soc->mem.size);
+		}
+
+		(void)close(fd);
+	}
+}
 
 /*
  * Fetch 8 bits from the given address in our memory and return it.
@@ -223,26 +292,40 @@ riskie_mem_store(struct hart *ht, u_int64_t addr, u_int64_t value, size_t bits)
 
 /*
  * Check if we can access memory at addr for the given amount of bytes.
- * XXX - The privilege accesses should be checked here later.
  *
  * This will return a pointer to where the data can be written, which
  * is essentially &ht->mem[addr] unless addr was a memory mapped register,
  * in which case a pointer to the correct mreg is returned.
+ *
+ * XXX - The privilege accesses should be checked here later.
  */
 u_int8_t *
 riskie_mem_validate_access(struct hart *ht, u_int64_t addr, size_t len, int ls)
 {
-	u_int8_t		*ptr;
-	struct peripheral	*perp;
+	struct peripheral_io_req	io;
+	u_int8_t			*ptr;
+	struct peripheral		*perp;
 
 	PRECOND(ht != NULL);
 	PRECOND(ls == RISKIE_MEM_STORE || ls == RISKIE_MEM_LOAD);
 
 	ptr = NULL;
 
-	/* Check for peripherals first. */
+	/* Check peripherals first. */
 	if ((perp = riskie_peripheral_from_addr(addr)) != NULL) {
-		ptr = perp->validate_mem_access(ht, addr, len, ls);
+		io.ht = ht;
+		io.ls = ls;
+		io.len = len;
+		io.addr = addr;
+		io.perp = perp;
+
+		ptr = perp->io(&io);
+
+		if (ptr == NULL) {
+			riskie_bit_set(&ht->flags,
+			    RISKIE_HART_FLAG_MEM_VIOLATION);
+		}
+
 		return (ptr);
 	}
 
@@ -250,12 +333,12 @@ riskie_mem_validate_access(struct hart *ht, u_int64_t addr, size_t len, int ls)
 	 * If the address requested is not located in main memory we don't
 	 * know what to do with it at this point.
 	 */
-	if (addr < riskie->mem.base) {
+	if (addr < soc->mem.base) {
 		riskie_hart_fatal(ht,
 		    "memory address 0x%" PRIx64 " invalid", addr);
 	}
 
-	if (addr >= (riskie->mem.base + riskie->mem.size)) {
+	if (addr >= (soc->mem.base + soc->mem.size)) {
 		riskie_hart_fatal(ht,
 		    "memory access at 0x%" PRIx64 " out of bounds", addr);
 	}
@@ -263,12 +346,12 @@ riskie_mem_validate_access(struct hart *ht, u_int64_t addr, size_t len, int ls)
 	if (addr + len < addr)
 		riskie_hart_fatal(ht, "memory access overflow");
 
-	if ((addr + len) > (riskie->mem.base + riskie->mem.size)) {
+	if ((addr + len) > (soc->mem.base + soc->mem.size)) {
 		riskie_hart_fatal(ht,
 		    "memory access at 0x%" PRIx64 " out of bounds", addr);
 	}
 
-	ptr = &ht->mem[addr - riskie->mem.base];
+	ptr = &soc->mem.ptr[addr - soc->mem.base];
 
 	return (ptr);
 }

@@ -31,7 +31,7 @@ static void	riskie_sig_handler(int);
 static volatile sig_atomic_t	sig_recv = -1;
 
 /* The global context. */
-struct riskie	*riskie = NULL;
+struct soc	*soc = NULL;
 
 static void
 usage(void)
@@ -40,21 +40,23 @@ usage(void)
 	exit(1);
 }
 
+/*
+ * Riskie business.
+ */
 int
 main(int argc, char *argv[])
 {
-	int		ch;
-	struct hart	ht;
 	const char	*config;
+	int		ch, running, sig;
 
 	config = NULL;
 
 	/* XXX - place in shm later when doing multiple hart procs. */
-	if ((riskie = calloc(1, sizeof(*riskie))) == NULL)
+	if ((soc = calloc(1, sizeof(*soc))) == NULL)
 		fatal("calloc: failed");
 
-	riskie->mem.size = RISKIE_DEFAULT_MEM_SIZE;
-	riskie->mem.base = RISKIE_DEFAULT_MEM_BASE_ADDR;
+	soc->mem.size = RISKIE_DEFAULT_MEM_SIZE;
+	soc->mem.base = RISKIE_DEFAULT_MEM_BASE_ADDR;
 
 	while ((ch = getopt(argc, argv, "c:d")) != -1) {
 		switch (ch) {
@@ -62,7 +64,7 @@ main(int argc, char *argv[])
 			config = optarg;
 			break;
 		case 'd':
-			riskie->debug = 1;
+			soc->debug = 1;
 			break;
 		default:
 			usage();
@@ -80,11 +82,33 @@ main(int argc, char *argv[])
 	if (config != NULL)
 		riskie_config_load(config);
 
+	riskie_mem_init(argv[0]);
+	riskie_hart_init(&soc->ht, soc->mem.base, 0);
+
+	running = 1;
 	riskie_trap_signal(SIGINT);
 
-	riskie_hart_init(&ht, argv[0], riskie->mem.base, 0);
-	riskie_hart_run(&ht);
-	riskie_hart_cleanup(&ht);
+	while (running) {
+		if ((sig = riskie_last_signal()) != -1) {
+			switch (sig) {
+			case SIGINT:
+				running = 0;
+				continue;
+			}
+		}
+
+		riskie_hart_tick(&soc->ht);
+		riskie_peripheral_tick();
+	}
+
+	riskie_hart_cleanup(&soc->ht);
+
+	if (soc->debug) {
+		riskie_mem_dump();
+		riskie_hart_dump(&soc->ht);
+	}
+
+	free(soc->mem.ptr);
 
 	return (0);
 }
@@ -118,6 +142,10 @@ fatal(const char *fmt, ...)
 	va_end(args);
 
 	fprintf(stderr, "\n");
+
+	if (soc->debug)
+		riskie_mem_dump();
+
 	exit(1);
 }
 

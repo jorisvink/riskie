@@ -1,3 +1,4 @@
 riskie
 *.o
 *.bin
+*.so

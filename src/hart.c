@@ -15,10 +15,8 @@
  */
 
 #include <sys/types.h>
-#include <sys/stat.h>
 
 #include <errno.h>
-#include <fcntl.h>
 #include <inttypes.h>
 #include <stdarg.h>
 #include <stdio.h>
@@ -26,11 +24,9 @@
 #include <string.h>
 #include <signal.h>
 #include <time.h>
-#include <unistd.h>
 
 #include "riskie.h"
 
-static void	hart_dump(struct hart *);
 static void	hart_timer_next(struct hart *);
 static void	hart_validate_pc(struct hart *);
 static void	hart_environment_call(struct hart *);
@@ -59,39 +55,14 @@ static void	hart_next_instruction(struct hart *);
 static int	hart_csr_access(struct hart *, u_int16_t, u_int64_t, int);
 
 /*
- * Prepare the hart by loading in the image specified in the given path.
+ * Prepare the hart by setting up the initial execution environment.
  */
 void
-riskie_hart_init(struct hart *ht, const char *path, u_int64_t pc, u_int16_t hid)
+riskie_hart_init(struct hart *ht, u_int64_t pc, u_int16_t hid)
 {
-	int			fd;
-	struct stat		st;
-	ssize_t			ret;
-
 	PRECOND(ht != NULL);
-	PRECOND(path != NULL);
 
 	memset(ht, 0, sizeof(*ht));
-
-	if ((ht->mem = calloc(1, riskie->mem.size)) == NULL)
-		fatal("calloc");
-
-	if ((fd = open(path, O_RDONLY)) == -1)
-		fatal("open: %s", path);
-
-	if (fstat(fd, &st) == -1)
-		fatal("fstat: %s", path);
-
-	if ((size_t)st.st_size > riskie->mem.size)
-		fatal("image doesn't fit in memory");
-
-	if ((ret = read(fd, ht->mem, st.st_size)) == -1)
-		fatal("read");
-
-	close(fd);
-
-	if (ret != st.st_size)
-		fatal("failed to read, only got %zd/%zd", ret, st.st_size);
 
 	ht->regs.pc = pc;
 	ht->mode = RISKIE_HART_MACHINE_MODE;
@@ -114,34 +85,16 @@ riskie_hart_cleanup(struct hart *ht)
 }
 
 /*
- * Run the hart by executing instructions.
+ * Execute one "tick" for the hart.
  */
 void
-riskie_hart_run(struct hart *ht)
+riskie_hart_tick(struct hart *ht)
 {
-	int		running, sig;
+	hart_timer_next(ht);
+	hart_interrupt_execute(ht);
 
-	PRECOND(ht != NULL);
-
-	running = 1;
-
-	while (running) {
-		if ((sig = riskie_last_signal()) != -1) {
-			switch (sig) {
-			case SIGINT:
-				running = 0;
-				continue;
-			}
-		}
-
-		hart_timer_next(ht);
-		hart_interrupt_execute(ht);
-
-		if (riskie_bit_get(ht->flags, RISKIE_HART_FLAG_WFI) == 0)
-			hart_next_instruction(ht);
-	}
-
-	riskie_hart_fatal(ht, "interrupted by user");
+	if (riskie_bit_get(ht->flags, RISKIE_HART_FLAG_WFI) == 0)
+		hart_next_instruction(ht);
 }
 
 /*
@@ -150,8 +103,6 @@ riskie_hart_run(struct hart *ht)
 void
 riskie_hart_fatal(struct hart *ht, const char *fmt, ...)
 {
-	int		fd;
-	ssize_t		ret;
 	va_list		args;
 
 	PRECOND(ht != NULL);
@@ -164,23 +115,7 @@ riskie_hart_fatal(struct hart *ht, const char *fmt, ...)
 
 	fprintf(stderr, "\n");
 
-	if (riskie->debug) {
-		fd = open("riskie.mem", O_CREAT | O_TRUNC | O_WRONLY, 0700);
-		if (fd != -1) {
-			ret = write(fd, ht->mem, riskie->mem.size);
-			if (ret == -1) {
-				printf("error writing memory to disk: %s\n",
-				    strerror(errno));
-			} else if ((size_t)ret != riskie->mem.size) {
-				printf("failed to write all memory (%zd/%zu)\n",
-				    ret, riskie->mem.size);
-			}
-
-			(void)close(fd);
-		}
-	}
-
-	hart_dump(ht);
+	riskie_hart_dump(ht);
 	riskie_hart_cleanup(ht);
 
 	fatal("hart gave up");
@@ -189,8 +124,8 @@ riskie_hart_fatal(struct hart *ht, const char *fmt, ...)
 /*
  * Dump the given hart its registers.
  */
-static void
-hart_dump(struct hart *ht)
+void
+riskie_hart_dump(struct hart *ht)
 {
 	int		idx;
 
@@ -689,7 +624,7 @@ hart_opcode_system(struct hart *ht, u_int32_t instr)
 			hart_environment_call(ht);
 			break;
 		case RISCV_PRIV_INSTRUCTION_EBREAK:
-			hart_dump(ht);
+			riskie_hart_dump(ht);
 			break;
 		default:
 			riskie_hart_fatal(ht,

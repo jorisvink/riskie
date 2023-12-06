@@ -289,58 +289,94 @@ struct hart {
 };
 
 /*
- * A peripheral that is accessible via a certain memory mapped
- * address space or register.
- *
- * STORE/LOAD operations to this address range is redirected to
- * the peripheral itself.
+ * An I/O request to a peripheral.
+ */
+struct peripheral_io_req {
+	/* The peripheral that is called. */
+	struct peripheral	*perp;
+
+	/* The hart that caused the I/O request. */
+	struct hart		*ht;
+
+	/* Are we doing a LOAD or STORE? */
+	int			ls;
+
+	/* The address where the I/O requests occurred. */
+	u_int64_t		addr;
+
+	/* The amount of bytes requested. */
+	size_t			len;
+};
+
+/*
+ * A peripheral that is accessible via a certain memory space.
+ * All memory accesses to this address range are redirected to the peripheral.
  */
 struct peripheral {
+	/* The memory allocation. */
 	struct {
 		u_int64_t	base;
 		size_t		size;
+		u_int8_t	*ptr;
 	} mem;
 
-	/* Called when access occurs. */
-	u_int8_t	*(*validate_mem_access)(struct hart *,
-			    u_int64_t, size_t, int);
+	/* Called when memory access occurs. */
+	u_int8_t	*(*io)(struct peripheral_io_req *);
+
+	/* Called for each "tick" on the soc. */
+	void		(*tick)(struct peripheral *);
 
 	LIST_ENTRY(peripheral)	list;
 };
 
+/* The functions peripheral modules must export. */
+void		peripheral_init(struct peripheral *);
+u_int8_t	*peripheral_io(struct peripheral_io_req *);
+
 /*
- * Global context while riskie is running.
+ * The "SoC" riskie mimics. Available as a global symbol to everyone.
  */
-struct riskie {
+struct soc {
 	/* Are we running under debug? */
 	int			debug;
 
+	/* Our main memory. */
 	struct {
 		u_int64_t	base;
 		size_t		size;
+		u_int8_t	*ptr;
 	} mem;
+
+	/* The harts. */
+	struct hart		ht;
+
+	/* The connected peripherals. */
+	LIST_HEAD(, peripheral)	peripherals;
 };
 
 /* src/riskie.c */
 int		riskie_last_signal(void);
 void		fatal(const char *, ...) __attribute__((noreturn));
 
-extern struct riskie	*riskie;
+extern struct soc	*soc;
 
 /* src/hart.c */
-void		riskie_hart_run(struct hart *);
+void		riskie_hart_dump(struct hart *);
+void		riskie_hart_tick(struct hart *);
 void		riskie_hart_trap(struct hart *);
 void		riskie_hart_cleanup(struct hart *);
+void		riskie_hart_init(struct hart *, u_int64_t, u_int16_t);
 void		riskie_hart_fatal(struct hart *, const char *, ...)
 		    __attribute__((format (printf, 2, 3)))
 		    __attribute__((noreturn));
-void		riskie_hart_init(struct hart *, const char *,
-		    u_int64_t, u_int16_t);
 
 /* src/config.c */
 void		riskie_config_load(const char *);
 
 /* src/mem.c */
+void		riskie_mem_dump(void);
+void		riskie_mem_init(const char *);
+
 u_int8_t	riskie_mem_fetch8(struct hart *, u_int64_t);
 u_int16_t	riskie_mem_fetch16(struct hart *, u_int64_t);
 u_int32_t	riskie_mem_fetch32(struct hart *, u_int64_t);
@@ -369,10 +405,12 @@ u_int64_t	riskie_instr_imm_s(struct hart *, u_int32_t);
 u_int64_t	riskie_instr_imm_u(struct hart *, u_int32_t);
 
 /* src/peripheral.c */
+void		riskie_peripheral_tick(void);
 void		riskie_peripheral_init(void);
 void		riskie_peripheral_load(const char *, u_int64_t, size_t);
-void		riskie_peripheral_add(u_int64_t, size_t,
-		    u_int8_t *(*cb)(struct hart *, u_int64_t, size_t, int));
+
+struct peripheral	*riskie_peripheral_add(u_int64_t, size_t,
+			    u_int8_t *(*cb)(struct peripheral_io_req *));
 
 struct peripheral	*riskie_peripheral_from_addr(u_int64_t);
 

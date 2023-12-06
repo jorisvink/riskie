@@ -129,12 +129,12 @@ config_parse_memory(char *memory)
 	PRECOND(memory != NULL);
 
 	if (sscanf(memory, "0x%" PRIx64 " 0x%" PRIx64, &addr, &size) != 2)
-		fatal("Bad memory config, expected <addr> <size> (0x0)");
+		fatal("Bad memory configuration: %s", memory);
 
-	riskie->mem.base = addr;
-	riskie->mem.size = size;
+	soc->mem.base = addr;
+	soc->mem.size = size;
 
-	if (riskie->mem.base + riskie->mem.size < riskie->mem.base)
+	if (soc->mem.base + soc->mem.size < soc->mem.base)
 		fatal("memory size is a bit too large");
 }
 
@@ -148,5 +148,14 @@ config_parse_memory(char *memory)
 static void
 config_parse_peripheral(char *peripheral)
 {
+	char		path[512];
+	u_int64_t	addr, size;
+
 	PRECOND(peripheral != NULL);
+
+	if (sscanf(peripheral, "%511s 0x%" PRIx64 " 0x%" PRIx64,
+	    path, &addr, &size) != 3)
+		fatal("Bad peripheral configuration: %s", peripheral);
+
+	riskie_peripheral_load(path, addr, size);
 }

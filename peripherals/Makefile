@@ -1,33 +1,24 @@
-# riskie Makefile
+# peripherals Makefile
 
 CC?=cc
 OBJDIR?=obj
-BIN=riskie
 
 DESTDIR?=
 PREFIX?=/usr/local
-INSTALL_DIR=$(PREFIX)/bin
+INSTALL_DIR=$(PREFIX)/riskie/peripherals
 
 CFLAGS+=-std=c99 -pedantic -Wall -Werror -Wstrict-prototypes
 CFLAGS+=-Wmissing-prototypes -Wmissing-declarations -Wshadow
 CFLAGS+=-Wpointer-arith -Wcast-qual -Wsign-compare -O2
-CFLAGS+=-fstack-protector-all -Wtype-limits -fno-common -Iinclude
+CFLAGS+=-fstack-protector-all -Wtype-limits -fno-common -I../include
 CFLAGS+=-g
 
-SRC=	src/riskie.c \
-	src/config.c \
-	src/mem.c \
-	src/hart.c \
-	src/instr.c \
-	src/peripheral.c \
-	src/utils.c
+PERIPHERALS=	$(OBJDIR)/uart8250.so
 
 ifeq ("$(SANITIZE)", "1")
 	CFLAGS+=-fsanitize=address,undefined
 	LDFLAGS+=-fsanitize=address,undefined
 endif
-
-LDFLAGS+=-rdynamic
 
 OSNAME=$(shell uname -s | sed -e 's/[-_].*//g' | tr A-Z a-z)
 ifeq ("$(OSNAME)", "linux")
@@ -39,26 +30,20 @@ else ifeq ("$(OSNAME)", "openbsd")
 	CFLAGS+=-DPLATFORM_OPENBSD
 endif
 
-OBJS=	$(SRC:src/%.c=$(OBJDIR)/%.o)
+all: $(PERIPHERALS)
 
-all: $(BIN)
-	$(MAKE) -C peripherals
+$(PERIPHERALS): $(OBJDIR)
 
-$(BIN): $(OBJDIR) $(OBJS)
-	$(CC) $(OBJS) $(LDFLAGS) -o $(BIN)
-
-install: $(BIN)
+install: $(PERIPHERALS)
 	mkdir -p $(DESTDIR)$(INSTALL_DIR)
-	install -m 555 $(BIN) $(DESTDIR)$(INSTALL_DIR)/$(BIN)
 
 $(OBJDIR):
 	@mkdir -p $(OBJDIR)
 
-$(OBJDIR)/%.o: src/%.c
-	$(CC) $(CFLAGS) -c $< -o $@
+$(OBJDIR)/uart8250.so: uart8250.c
+	$(CC) $(CFLAGS) -shared $< -o $@
 
 clean:
-	rm -rf $(OBJDIR) $(BIN)
-	$(MAKE) -C peripherals clean
+	rm -rf $(OBJDIR) $(PERIPHERALS)
 
 .PHONY: all clean force
