@@ -467,7 +467,11 @@ hart_trap_machine(struct hart *ht, u_int8_t interrupt, u_int8_t code)
 	/* Finally call trap handler. */
 	ht->csr[val] = 0;
 	ht->csr[cause] = code;
-	ht->csr[epc] = ht->regs.pc - sizeof(u_int32_t);
+
+	if (interrupt)
+		ht->csr[epc] = ht->regs.pc;
+	else
+		ht->csr[epc] = ht->regs.pc - sizeof(u_int32_t);
 
 	if (interrupt)
 		riskie_bit_set(&ht->csr[cause], 63);
@@ -1329,7 +1333,7 @@ hart_opcode_sret(struct hart *ht, u_int32_t instr)
 
 	PRECOND(ht != NULL);
 
-	printf("SRET, mode=%u, sepc=0x%" PRIx64 "\n", ht->mode,
+	riskie_log(ht, "SRET, mode=%u, sepc=0x%" PRIx64 "\n", ht->mode,
 	    ht->csr[RISCV_CSR_SRW_SEPC]);
 
 	mpp = riskie_bit_get(ht->csr[RISCV_CSR_SRW_SSTATUS], 8);
