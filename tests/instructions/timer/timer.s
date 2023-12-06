@@ -5,7 +5,7 @@
 .equ MTIME,	0xf0001000
 .equ MTIMECMP,	0xf0002000
 
-.equ COUNT, 0x2000
+.equ COUNT, 0x80002000
 
 .globl test_entry
 .type test_entry, @function
