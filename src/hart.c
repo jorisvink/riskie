@@ -487,6 +487,7 @@ hart_next_instruction(struct hart *ht)
 	PRECOND(ht != NULL);
 
 	hart_validate_pc(ht);
+
 	instr = riskie_mem_fetch32(ht, ht->regs.pc);
 	ht->regs.pc += sizeof(instr);
 
@@ -601,7 +602,6 @@ hart_opcode_load(struct hart *ht, u_int32_t instr)
 		    rd, ht->regs.x[rd]);
 	} else {
 		riskie_bit_clear(&ht->flags, RISKIE_HART_FLAG_MEM_VIOLATION);
-		printf("error for 0x%lx\n", addr);
 		hart_trap_machine(ht, 0, 5);
 	}
 }
@@ -650,7 +650,6 @@ hart_opcode_store(struct hart *ht, u_int32_t instr)
 	/* XXX trigger some sort of exception. */
 	if (riskie_bit_get(ht->flags, RISKIE_HART_FLAG_MEM_VIOLATION)) {
 		riskie_bit_clear(&ht->flags, RISKIE_HART_FLAG_MEM_VIOLATION);
-		printf("error for 0x%lx\n", addr);
 		hart_trap_machine(ht, 0, 5);
 	}
 }
@@ -1330,19 +1329,15 @@ hart_opcode_sret(struct hart *ht, u_int32_t instr)
 
 	PRECOND(ht != NULL);
 
-	printf("SRET, mode=%u, mepc=0x%" PRIx64 "\n", ht->mode,
-	    ht->csr[RISCV_CSR_MRW_MEPC]);
+	printf("SRET, mode=%u, sepc=0x%" PRIx64 "\n", ht->mode,
+	    ht->csr[RISCV_CSR_SRW_SEPC]);
 
 	mpp = riskie_bit_get(ht->csr[RISCV_CSR_SRW_SSTATUS], 8);
 
-	switch (mpp) {
-	case RISKIE_HART_USER_MODE:
-	case RISKIE_HART_SUPERVISOR_MODE:
-		ht->mode = mpp;
-		break;
-	default:
-		riskie_hart_fatal(ht, "invalid mode %u", mpp);
-	}
+	if (mpp)
+		ht->mode = RISKIE_HART_SUPERVISOR_MODE;
+	else
+		ht->mode = RISKIE_HART_USER_MODE;
 
 	riskie_bit_clear(&ht->csr[RISCV_CSR_SRW_SSTATUS], 8);
 

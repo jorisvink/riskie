@@ -16,6 +16,7 @@ TESTS=	instructions/atomics \
 	instructions/math \
 	instructions/interrupts \
 	instructions/timer \
+	instructions/smode \
 	instructions/umode
 
 all: $(OBJDIR)
