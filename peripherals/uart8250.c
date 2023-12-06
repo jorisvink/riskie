@@ -31,6 +31,8 @@ struct state {
 	u_int64_t	regs[UART8250_REG_SIZE];
 };
 
+static void	uart8250_tick(struct peripheral *);
+
 /*
  * Riskie will call us when we are loaded, passing the peripheral context.
  */
@@ -48,10 +50,13 @@ peripheral_init(struct peripheral *perp)
 
 	/* Set transmit hold-register empty. */
 	st->regs[5] = 1 << 5;
+
+	/* We setup a callback so we're executed every emulation step. */
+	perp->tick = uart8250_tick;
 }
 
 /*
- * Riskie will call this function when I/O access access occurs on an address
+ * Riskie will call this function when I/O access occurs on an address
  * that we are responsible for.
  *
  * We return a pointer to the memory location of the requested register.
@@ -72,11 +77,13 @@ peripheral_io(struct peripheral_io_req *io)
 
 	st = (struct state *)io->perp->mem.ptr;
 
-	printf("0x%lx, %zu (%d)\n", io->addr, io->len, io->ls);
 	reg = (io->addr - io->perp->mem.base) & 0xff;
 
 	switch (reg) {
 	case 0:
+		if (io->ls == RISKIE_MEM_STORE)
+			st->regs[5] &= ~(1 << 5);
+		break;
 	case 1:
 	case 2:
 	case 3:
@@ -89,7 +96,24 @@ peripheral_io(struct peripheral_io_req *io)
 		fatal("%s: unknown register %u\n", __func__, reg);
 	}
 
-	printf("returning register %u, 0x%lx\n", reg, io->addr);
-
 	return ((u_int8_t *)&st->regs[reg]);
+}
+
+/*
+ * Called for each emulation step, we handle some business.
+ */
+static void
+uart8250_tick(struct peripheral *perp)
+{
+	struct state	*st;
+
+	PRECOND(perp != NULL);
+
+	st = (struct state *)perp->mem.ptr;
+
+	/* If we are holding a TX value, dump it to stdout. */
+	if ((st->regs[5] & (1 << 5)) == 0) {
+		printf("%c", (u_int8_t)st->regs[0]);
+		st->regs[5] |= 1 << 5;
+	}
 }

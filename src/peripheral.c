@@ -48,12 +48,12 @@ riskie_peripheral_init(void)
 void
 riskie_peripheral_tick(void)
 {
-#if 0
-	LIST_FOREACH(perp, &peripherals, list) {
+	struct peripheral	*perp;
+
+	LIST_FOREACH(perp, &soc->peripherals, list) {
 		if (perp->tick)
 			perp->tick(perp);
 	}
-#endif
 }
 
 /*
