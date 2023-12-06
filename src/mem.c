@@ -293,9 +293,9 @@ riskie_mem_store(struct hart *ht, u_int64_t addr, u_int64_t value, size_t bits)
 /*
  * Check if we can access memory at addr for the given amount of bytes.
  *
- * This will return a pointer to where the data can be written, which
- * is essentially &ht->mem[addr] unless addr was a memory mapped register,
- * in which case a pointer to the correct mreg is returned.
+ * This will return a pointer to where the data can be written, either
+ * in main memory, or from a peripheral. NULL may be returned to indicate
+ * a memory violation.
  *
  * XXX - The privilege accesses should be checked here later.
  */
