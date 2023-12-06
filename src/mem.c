@@ -332,21 +332,24 @@ riskie_mem_validate_access(struct hart *ht, u_int64_t addr, size_t len, int ls)
 	 * know what to do with it at this point.
 	 */
 	if (addr < soc->mem.base) {
-		riskie_hart_fatal(ht,
-		    "memory address 0x%" PRIx64 " invalid", addr);
+		riskie_log(ht, "MEM: 0x%" PRIx64 " out of bounds (lo)\n", addr);
+		riskie_bit_set(&ht->flags, RISKIE_HART_FLAG_MEM_VIOLATION);
+		return (NULL);
 	}
 
 	if (addr >= (soc->mem.base + soc->mem.size)) {
-		riskie_hart_fatal(ht,
-		    "memory access at 0x%" PRIx64 " out of bounds", addr);
+		riskie_log(ht, "MEM: 0x%" PRIx64 " out of bounds (hi)\n", addr);
+		riskie_bit_set(&ht->flags, RISKIE_HART_FLAG_MEM_VIOLATION);
+		return (NULL);
 	}
 
 	if (addr + len < addr)
 		riskie_hart_fatal(ht, "memory access overflow");
 
 	if ((addr + len) > (soc->mem.base + soc->mem.size)) {
-		riskie_hart_fatal(ht,
-		    "memory access at 0x%" PRIx64 " out of bounds", addr);
+		riskie_log(ht, "MEM: 0x%" PRIx64 " out of range\n", addr);
+		riskie_bit_set(&ht->flags, RISKIE_HART_FLAG_MEM_VIOLATION);
+		return (NULL);
 	}
 
 	ptr = &soc->mem.ptr[addr - soc->mem.base];

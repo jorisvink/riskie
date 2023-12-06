@@ -13,7 +13,7 @@ CFLAGS+=-std=c99 -pedantic -Wall -Werror -Wstrict-prototypes
 CFLAGS+=-Wmissing-prototypes -Wmissing-declarations -Wshadow
 CFLAGS+=-Wpointer-arith -Wcast-qual -Wsign-compare
 CFLAGS+=-Wtype-limits -fno-common -g -ffreestanding -nostdlib
-CFLAGS+=-march=rv64i -mabi=lp64
+CFLAGS+=-march=rv64ima -mabi=lp64 -mcmodel=medany
 
 C_SRC=		src/riscv.c
 ASM_SRC=

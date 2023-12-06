@@ -45,6 +45,18 @@ riskie_sign_extend(u_int32_t value, u_int8_t bit)
 }
 
 /*
+ * Clone the src bit into the given dst bit.
+ */
+void
+riskie_bit_clone(u_int64_t *bitmap, u_int8_t dst, u_int8_t src)
+{
+	if (riskie_bit_get(*bitmap, src))
+		riskie_bit_set(bitmap, dst);
+	else
+		riskie_bit_clear(bitmap, dst);
+}
+
+/*
  * Set the given bit in the given 64-bit bitmap.
  */
 void
@@ -96,6 +108,9 @@ riskie_log(struct hart *ht, const char *fmt, ...)
 	switch (ht->mode) {
 	case RISKIE_HART_MACHINE_MODE:
 		printf("[M] ");
+		break;
+	case RISKIE_HART_SUPERVISOR_MODE:
+		printf("[S] ");
 		break;
 	case RISKIE_HART_USER_MODE:
 		printf("[U] ");

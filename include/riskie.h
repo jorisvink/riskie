@@ -36,8 +36,12 @@
 /* Maximum number of CSRs. */
 #define RISCV_CSR_COUNT			4096
 
+/* Some trap information. */
+#define RISCV_TRAP_INTERRUPT_MAX	16
+#define RISCV_TRAP_MAX			64
+
 /* Traps we use. */
-#define RISCV_TRAP_LOAD_ADDR_MISALIGNED		4
+#define RISCV_TRAP_LOAD_ADDR_MISALIGNED	4
 
 /*
  * RISC-V Control and Status Registers.
@@ -47,28 +51,47 @@
 #define RISCV_CSR_MRO_IMPLEMENTATION_ID	0xf13
 #define RISCV_CSR_MRO_HART_ID		0xf14
 
+/* Supervisor CSRs. */
+#define RISCV_CSR_SRW_SSTATUS		0x100
+#define RISCV_CSR_SRW_SIE		0x104
+#define RISCV_CSR_SRW_SCOUNTEREN	0x106
+#define RISCV_CSR_SRW_STVEC		0x105
+#define RISCV_CSR_SRW_SSCRATCH		0x140
+#define RISCV_CSR_SRW_SEPC		0x141
+#define RISCV_CSR_SRW_STVAL		0x143
+#define RISCV_CSR_SRW_SIP		0x144
+#define RISCV_CSR_SRW_SATP		0x180
+
 /* The machine status. */
 #define RISCV_CSR_MRW_MSTATUS		0x300
 
 /* The supported instructions csr. */
 #define RISCV_CSR_MRW_MISA		0x301
 
-/* Vector base address and traps. */
+/* Machine mode CSRs. */
+#define RISCV_CSR_MRW_MEDELEG		0x302
+#define RISCV_CSR_MRW_MIDELEG		0x303
 #define RISCV_CSR_MRW_MIE		0x304
 #define RISCV_CSR_MRW_MTVEC		0x305
 #define RISCV_CSR_MRW_MCOUNTEREN	0x306
+#define RISCV_CSR_MRW_MCOUNTINHIBIT	0x320
 #define RISCV_CSR_MRW_MSCRATCH		0x340
 #define RISCV_CSR_MRW_MEPC		0x341
 #define RISCV_CSR_MRW_MCAUSE		0x342
 #define RISCV_CSR_MRW_MTVAL		0x343
 #define RISCV_CSR_MRW_MIP		0x344
 
+/* Counter and Timer CSRs. */
+#define RISCV_CSR_URO_CYCLE		0xc00
+#define RISCV_CSR_URO_TIME		0xc01
+
 /*
- * The mstatus register bits that are important to us right now.
+ * The [s,m]status register bits that are important to us right now.
  */
-#define RISCV_MSTATUS_BIT_SIE		1
-#define RISCV_MSTATUS_BIT_MIE		3
-#define RISCV_MSTATUS_BIT_MPIE		7
+#define RISCV_STATUS_BIT_SIE		1
+#define RISCV_STATUS_BIT_MIE		3
+#define RISCV_STATUS_BIT_SPIE		5
+#define RISCV_STATUS_BIT_MPIE		7
 
 /*
  * mpi and mie bits that are important to us.
@@ -229,11 +252,9 @@
 #define RISCV_RV32A_FUNCTION_ATOMIC		0x02
 #define RISCV_RV64A_FUNCTION_ATOMIC		0x03
 
-/* Indicator that a CSR access is invalid. */
-#define RISKIE_CSR_INVALID		(u_int16_t)-1
-
 /* The supported privilege modes. */
 #define RISKIE_HART_MACHINE_MODE		3
+#define RISKIE_HART_SUPERVISOR_MODE		1
 #define RISKIE_HART_USER_MODE			0
 
 /*
@@ -428,6 +449,7 @@ u_int8_t	riskie_bit_get(u_int64_t, u_int8_t);
 void		riskie_bit_set(u_int64_t *, u_int8_t);
 void		riskie_bit_clear(u_int64_t *, u_int8_t);
 u_int64_t	riskie_sign_extend(u_int32_t, u_int8_t);
+void		riskie_bit_clone(u_int64_t *, u_int8_t, u_int8_t);
 void		riskie_log(struct hart *, const char *, ...)
 		    __attribute__((format (printf, 2, 3)));
 
