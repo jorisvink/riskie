@@ -33,7 +33,7 @@ static int	hart_csr_known(u_int16_t);
 static void	hart_timer_next(struct hart *);
 static void	hart_validate_pc(struct hart *);
 static void	hart_environment_call(struct hart *);
-static void	hart_trap_machine(struct hart *, u_int8_t);
+static void	hart_trap_machine(struct hart *, u_int8_t, u_int8_t);
 
 static void	hart_interrupt_execute(struct hart *);
 static void	hart_interrupt_set_pending(struct hart *, u_int8_t);
@@ -43,6 +43,7 @@ static void	hart_opcode_lui(struct hart *, u_int32_t);
 static void	hart_opcode_jal(struct hart *, u_int32_t);
 static void	hart_opcode_jalr(struct hart *, u_int32_t);
 static void	hart_opcode_load(struct hart *, u_int32_t);
+static void	hart_opcode_sret(struct hart *, u_int32_t);
 static void	hart_opcode_mret(struct hart *, u_int32_t);
 static void	hart_opcode_store(struct hart *, u_int32_t);
 static void	hart_opcode_auipc(struct hart *, u_int32_t);
@@ -103,9 +104,7 @@ riskie_hart_tick(struct hart *ht)
 {
 	hart_timer_next(ht);
 	hart_interrupt_execute(ht);
-
-	if (riskie_bit_get(ht->flags, RISKIE_HART_FLAG_WFI) == 0)
-		hart_next_instruction(ht);
+	hart_next_instruction(ht);
 
 	ht->csr[RISCV_CSR_URO_CYCLE]++;
 }
@@ -192,7 +191,7 @@ hart_csr_access(struct hart *ht, u_int16_t csr, u_int64_t bits, int ls)
 	/* We only allow access to CSRs we know. */
 	if (hart_csr_known(csr) == -1) {
 		riskie_log(ht, "CSR: invalid CSR 0x%04x\n", csr);
-		hart_trap_machine(ht, 1);
+		hart_trap_machine(ht, 0, 1);
 		return (-1);
 	}
 
@@ -201,7 +200,7 @@ hart_csr_access(struct hart *ht, u_int16_t csr, u_int64_t bits, int ls)
 
 	if (ht->mode < privilege) {
 		riskie_log(ht, "CSR: unprivileged access to 0x%04x\n", csr);
-		hart_trap_machine(ht, 1);
+		hart_trap_machine(ht, 0, 1);
 		return (-1);
 	}
 
@@ -209,7 +208,7 @@ hart_csr_access(struct hart *ht, u_int16_t csr, u_int64_t bits, int ls)
 	case RISKIE_MEM_STORE:
 		if (perm == 3) {
 			riskie_log(ht, "CSR: write to ro csr 0x%04x\n", csr);
-			hart_trap_machine(ht, 1);
+			hart_trap_machine(ht, 0, 1);
 			return (-1);
 		}
 		break;
@@ -244,7 +243,7 @@ hart_csr_access(struct hart *ht, u_int16_t csr, u_int64_t bits, int ls)
 
 	if (fail) {
 		riskie_log(ht, "CSR: write to ro-bit csr 0x%04x\n", csr);
-		hart_trap_machine(ht, 1);
+		hart_trap_machine(ht, 0, 1);
 		return (-1);
 	}
 
@@ -261,20 +260,18 @@ hart_environment_call(struct hart *ht)
 
 	PRECOND(ht != NULL);
 
-	/* Global M-mode interrupts enabled. */
-	if (riskie_bit_get(ht->csr[RISCV_CSR_MRW_MSTATUS],
-	    RISCV_STATUS_BIT_MIE) == 0)
-		return;
-
 	switch (ht->mode) {
 	case RISKIE_HART_MACHINE_MODE:
 		exception = 11;
+		break;
+	case RISKIE_HART_SUPERVISOR_MODE:
+		exception = 9;
 		break;
 	default:
 		riskie_hart_fatal(ht, "invalid mode %u", ht->mode);
 	}
 
-	hart_trap_machine(ht, exception);
+	hart_trap_machine(ht, 0, exception);
 }
 
 /*
@@ -290,8 +287,8 @@ hart_timer_next(struct hart *ht)
 
 	(void)clock_gettime(CLOCK_MONOTONIC, &ts);
 
-	ht->csr[RISCV_CSR_URO_TIME] = ts.tv_sec;
 	ht->mregs.mtime = ts.tv_nsec + (ts.tv_sec * 1000000000);
+	ht->csr[RISCV_CSR_URO_TIME] = ht->mregs.mtime;
 
 	if (riskie_bit_get(ht->flags, RISKIE_HART_FLAG_MTIMECMP)) {
 		if (ht->mregs.mtimecmp > ht->mregs.mtime)
@@ -345,21 +342,21 @@ hart_interrupt_execute(struct hart *ht)
 	/* MIE */
 	if (riskie_bit_get(ht->csr[RISCV_CSR_MRW_MIE], RISCV_TRAP_BIT_MEI) &&
 	    riskie_bit_get(ht->csr[RISCV_CSR_MRW_MIP], RISCV_TRAP_BIT_MEI)) {
-		hart_trap_machine(ht, RISCV_TRAP_BIT_MEI);
+		hart_trap_machine(ht, 1, RISCV_TRAP_BIT_MEI);
 		return;
 	}
 
 	/* MSI */
 	if (riskie_bit_get(ht->csr[RISCV_CSR_MRW_MIE], RISCV_TRAP_BIT_MSI) &&
 	    riskie_bit_get(ht->csr[RISCV_CSR_MRW_MIP], RISCV_TRAP_BIT_MSI)) {
-		hart_trap_machine(ht, RISCV_TRAP_BIT_MSI);
+		hart_trap_machine(ht, 1, RISCV_TRAP_BIT_MSI);
 		return;
 	}
 
 	/* MTI */
 	if (riskie_bit_get(ht->csr[RISCV_CSR_MRW_MIE], RISCV_TRAP_BIT_MTI) &&
 	    riskie_bit_get(ht->csr[RISCV_CSR_MRW_MIP], RISCV_TRAP_BIT_MTI)) {
-		hart_trap_machine(ht, RISCV_TRAP_BIT_MTI);
+		hart_trap_machine(ht, 1, RISCV_TRAP_BIT_MTI);
 		return;
 	}
 }
@@ -377,17 +374,17 @@ hart_interrupt_execute(struct hart *ht)
  * If the trap was set to be delegated to S-mode, we do that here.
  */
 static void
-hart_trap_machine(struct hart *ht, u_int8_t trap)
+hart_trap_machine(struct hart *ht, u_int8_t interrupt, u_int8_t code)
 {
 	int		delegate;
 	u_int8_t	target, iebit, piebit;
 	u_int16_t	status, cause, val, epc, vec;
 
 	PRECOND(ht != NULL);
-	PRECOND(trap < RISCV_TRAP_MAX);
+	PRECOND(interrupt == 0 || interrupt == 1);
 
-	riskie_log(ht, "MTRAP, mode=%u, trap=%u, mpi=0x%" PRIx64
-	    ", mie=0x%" PRIx64 "\n", ht->mode, trap,
+	riskie_log(ht, "MTRAP, mode=%u, interrupt=%u, code=%u, mpi=0x%" PRIx64
+	    ", mie=0x%" PRIx64 "\n", ht->mode, interrupt, code,
 	    ht->csr[RISCV_CSR_MRW_MIP], ht->csr[RISCV_CSR_MRW_MIE]);
 
 	/* The default trap target is machine mode. */
@@ -397,21 +394,18 @@ hart_trap_machine(struct hart *ht, u_int8_t trap)
 	vec = RISCV_CSR_MRW_MTVEC;
 	val = RISCV_CSR_MRW_MTVAL;
 	cause = RISCV_CSR_MRW_MCAUSE;
-	iebit = RISCV_STATUS_BIT_MIE;
 	status = RISCV_CSR_MRW_MSTATUS;
+
+	iebit = RISCV_STATUS_BIT_MIE;
 	piebit = RISCV_STATUS_BIT_MPIE;
 	target = RISKIE_HART_MACHINE_MODE;
 
-	/* Clear the WFI flag if this was an interrupt. */
-	if (trap < RISCV_TRAP_INTERRUPT_MAX)
-		riskie_bit_clear(&ht->flags, RISKIE_HART_FLAG_WFI);
-
 	/* Check if we delegate into S-mode instead. */
-	if (trap < RISCV_TRAP_INTERRUPT_MAX) {
-		if (riskie_bit_get(ht->csr[RISCV_CSR_MRW_MEDELEG], trap))
+	if (interrupt) {
+		if (riskie_bit_get(ht->csr[RISCV_CSR_MRW_MIDELEG], code))
 			delegate = 1;
 	} else {
-		if (riskie_bit_get(ht->csr[RISCV_CSR_MRW_MEDELEG], trap))
+		if (riskie_bit_get(ht->csr[RISCV_CSR_MRW_MEDELEG], code))
 			delegate = 1;
 	}
 
@@ -420,9 +414,11 @@ hart_trap_machine(struct hart *ht, u_int8_t trap)
 		epc = RISCV_CSR_SRW_SEPC;
 		vec = RISCV_CSR_SRW_STVEC;
 		val = RISCV_CSR_SRW_STVAL;
+		cause = RISCV_CSR_SRW_SCAUSE;
+		status = RISCV_CSR_SRW_SSTATUS;
+
 		iebit = RISCV_STATUS_BIT_SIE;
 		piebit = RISCV_STATUS_BIT_SPIE;
-		status = RISCV_CSR_SRW_SSTATUS;
 		target = RISKIE_HART_SUPERVISOR_MODE;
 
 		switch (ht->mode) {
@@ -462,7 +458,7 @@ hart_trap_machine(struct hart *ht, u_int8_t trap)
 		}
 	}
 
-	/* Swap mode and clear clone xIE into xPIE, and clear xIE. */
+	/* Swap mode and clone xIE into xPIE, and then clear xIE. */
 	ht->mode = target;
 
 	riskie_bit_clone(&ht->csr[status], piebit, iebit);
@@ -470,10 +466,10 @@ hart_trap_machine(struct hart *ht, u_int8_t trap)
 
 	/* Finally call trap handler. */
 	ht->csr[val] = 0;
-	ht->csr[cause] = trap;
-	ht->csr[epc] = ht->regs.pc;
+	ht->csr[cause] = code;
+	ht->csr[epc] = ht->regs.pc - sizeof(u_int32_t);
 
-	if (trap < RISCV_TRAP_INTERRUPT_MAX)
+	if (interrupt)
 		riskie_bit_set(&ht->csr[cause], 63);
 
 	ht->regs.pc = ht->csr[vec];
@@ -605,7 +601,8 @@ hart_opcode_load(struct hart *ht, u_int32_t instr)
 		    rd, ht->regs.x[rd]);
 	} else {
 		riskie_bit_clear(&ht->flags, RISKIE_HART_FLAG_MEM_VIOLATION);
-		hart_trap_machine(ht, 5);
+		printf("error for 0x%lx\n", addr);
+		hart_trap_machine(ht, 0, 5);
 	}
 }
 
@@ -653,7 +650,8 @@ hart_opcode_store(struct hart *ht, u_int32_t instr)
 	/* XXX trigger some sort of exception. */
 	if (riskie_bit_get(ht->flags, RISKIE_HART_FLAG_MEM_VIOLATION)) {
 		riskie_bit_clear(&ht->flags, RISKIE_HART_FLAG_MEM_VIOLATION);
-		hart_trap_machine(ht, 5);
+		printf("error for 0x%lx\n", addr);
+		hart_trap_machine(ht, 0, 5);
 	}
 }
 
@@ -715,6 +713,7 @@ hart_opcode_system(struct hart *ht, u_int32_t instr)
 		case RISCV_PRIV_FUNCTION_TRAP_RETURN:
 			switch (funct7) {
 			case RISCV_PRIV_INSTRUCTION_SRET:
+				hart_opcode_sret(ht, instr);
 				break;
 			case RISCV_PRIV_INSTRUCTION_MRET:
 				hart_opcode_mret(ht, instr);
@@ -727,8 +726,6 @@ hart_opcode_system(struct hart *ht, u_int32_t instr)
 		case RISCV_PRIV_FUNCTION_INTERRUPT_MGMT:
 			switch (funct7) {
 			case RISCV_PRIV_INSTRUCTION_WFI:
-				riskie_bit_set(&ht->flags,
-				    RISKIE_HART_FLAG_WFI);
 				break;
 			default:
 				riskie_hart_fatal(ht,
@@ -1275,11 +1272,6 @@ hart_opcode_atomic(struct hart *ht, u_int32_t instr)
 /*
  * The MRET instruction, returns from an M-mode trap back to where
  * we came from, restoring privilege level etc.
- *
- * Privilege level = MPP
- * MIE = MPIE
- * MPIE = 0
- * PC = MEPC
  */
 static void
 hart_opcode_mret(struct hart *ht, u_int32_t instr)
@@ -1325,6 +1317,42 @@ hart_opcode_mret(struct hart *ht, u_int32_t instr)
 
 	ht->csr[RISCV_CSR_MRW_MCAUSE] = 0;
 	ht->regs.pc = ht->csr[RISCV_CSR_MRW_MEPC];
+}
+
+/*
+ * The SRET instruction, returns from an S-mode trap back to where
+ * we came from, restoring privilege level etc.
+ */
+static void
+hart_opcode_sret(struct hart *ht, u_int32_t instr)
+{
+	u_int8_t	mpp;
+
+	PRECOND(ht != NULL);
+
+	printf("SRET, mode=%u, mepc=0x%" PRIx64 "\n", ht->mode,
+	    ht->csr[RISCV_CSR_MRW_MEPC]);
+
+	mpp = riskie_bit_get(ht->csr[RISCV_CSR_SRW_SSTATUS], 8);
+
+	switch (mpp) {
+	case RISKIE_HART_USER_MODE:
+	case RISKIE_HART_SUPERVISOR_MODE:
+		ht->mode = mpp;
+		break;
+	default:
+		riskie_hart_fatal(ht, "invalid mode %u", mpp);
+	}
+
+	riskie_bit_clear(&ht->csr[RISCV_CSR_SRW_SSTATUS], 8);
+
+	riskie_bit_clone(&ht->csr[RISCV_CSR_SRW_SSTATUS],
+	    RISCV_STATUS_BIT_SIE, RISCV_STATUS_BIT_SPIE);
+
+	riskie_bit_set(&ht->csr[RISCV_CSR_SRW_SSTATUS], RISCV_STATUS_BIT_SPIE);
+
+	ht->csr[RISCV_CSR_SRW_SCAUSE] = 0;
+	ht->regs.pc = ht->csr[RISCV_CSR_SRW_SEPC];
 }
 
 /*
@@ -1454,6 +1482,7 @@ hart_csr_known(u_int16_t csr)
 	case RISCV_CSR_SRW_SEPC:
 	case RISCV_CSR_SRW_STVAL:
 	case RISCV_CSR_SRW_STVEC:
+	case RISCV_CSR_SRW_SCAUSE:
 	case RISCV_CSR_SRW_SSTATUS:
 	case RISCV_CSR_SRW_SSCRATCH:
 	case RISCV_CSR_SRW_SCOUNTEREN:

@@ -87,7 +87,7 @@ peripheral_io(struct peripheral_io_req *io)
 	PRECOND(io->ht != NULL);
 	PRECOND(io->perp != NULL);
 
-	if (io->ht->mode != RISKIE_HART_MACHINE_MODE)
+	if (io->ht->mode == RISKIE_HART_USER_MODE)
 		return (NULL);
 
 	st = (struct state *)io->perp->mem.ptr;
@@ -134,6 +134,7 @@ uart8250_tick(struct peripheral *perp)
 	 */
 	if ((st->regs[UART8250_REG_LSR] & UART8250_LSR_TX_REG_EMPTY) == 0) {
 		printf("%c", (u_int8_t)st->regs[0]);
+		fflush(stdout);
 		uart8250_transmission_ready(st);
 	}
 }

@@ -9,7 +9,7 @@ INSTALL_DIR=$(PREFIX)/riskie/peripherals
 
 CFLAGS+=-std=c99 -pedantic -Wall -Werror -Wstrict-prototypes
 CFLAGS+=-Wmissing-prototypes -Wmissing-declarations -Wshadow
-CFLAGS+=-Wpointer-arith -Wcast-qual -Wsign-compare -O2
+CFLAGS+=-Wpointer-arith -Wcast-qual -Wsign-compare -O2 -fPIC
 CFLAGS+=-fstack-protector-all -Wtype-limits -fno-common -I../include
 CFLAGS+=-g
 
