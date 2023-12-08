@@ -1,0 +1,6 @@
+# 128MB of DRAM
+# Available at 0x80000000
+memory 0x80000000 0x8000000
+
+# Define a UART8250 peripheral at 0x90000000
+peripheral ./peripherals/obj/uart8250.so 0x90000000 0xff
