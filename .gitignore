@@ -1,4 +1,5 @@
 riskie
+tests/obj
 *.o
 *.bin
 *.so
