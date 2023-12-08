@@ -136,6 +136,9 @@ riskie_hart_fatal(struct hart *ht, const char *fmt, ...)
 
 	PRECOND(ht != NULL);
 
+	riskie_term_restore();
+	fflush(stdout);
+
 	fprintf(stderr, "hart fatal: ");
 
 	va_start(args, fmt);

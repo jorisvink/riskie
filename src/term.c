@@ -73,6 +73,7 @@ riskie_term_restore(void)
 	if (can_restore == 0)
 		return;
 
+	can_restore = 0;
 	printf("%s", TERM_SEQUENCE_ALTERNATE_OFF);
 	(void)tcsetattr(STDIN_FILENO, TCSANOW, &old);
 }

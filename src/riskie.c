@@ -133,6 +133,7 @@ main(int argc, char *argv[])
 		}
 	}
 
+	riskie_term_restore();
 	riskie_hart_cleanup(&soc->ht);
 
 	if (soc->debug) {
@@ -141,7 +142,6 @@ main(int argc, char *argv[])
 	}
 
 	free(soc->mem.ptr);
-	riskie_term_restore();
 
 	return (0);
 }
