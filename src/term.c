@@ -25,11 +25,6 @@
 
 #include "riskie.h"
 
-#define TERM_ESCAPE			"\33["
-#define TERM_SEQUENCE_ALTERNATE_ON	TERM_ESCAPE "?1049h"
-#define TERM_SEQUENCE_ALTERNATE_OFF	TERM_ESCAPE "?1049l"
-#define TERM_SEQUENCE_CLEAR		TERM_ESCAPE "2J" TERM_ESCAPE "1;1H"
-
 /* Current and previous terminal settings. */
 static struct termios	cur;
 static struct termios	old;
@@ -59,9 +54,6 @@ riskie_term_setup(void)
 		fatal("%s: tcsetattr: %s", __func__, strerror(errno));
 
 	can_restore = 1;
-
-	printf("%s", TERM_SEQUENCE_ALTERNATE_ON);
-	printf("%s", TERM_SEQUENCE_CLEAR);
 }
 
 /*
@@ -74,6 +66,5 @@ riskie_term_restore(void)
 		return;
 
 	can_restore = 0;
-	printf("%s", TERM_SEQUENCE_ALTERNATE_OFF);
 	(void)tcsetattr(STDIN_FILENO, TCSANOW, &old);
 }
