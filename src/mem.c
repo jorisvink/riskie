@@ -28,33 +28,52 @@
 #include "riskie.h"
 
 /*
- * Initialise the main memory, and load the to be executed binary
- * from the given path.
+ * Allocate the amount of memory we would like.
  */
 void
-riskie_mem_init(const char *path)
+riskie_mem_init(void)
 {
-	int			fd;
-	struct stat		st;
-	ssize_t			ret;
-
-	PRECOND(path != NULL);
 	PRECOND(soc->mem.ptr == NULL);
 
 	if ((soc->mem.ptr = calloc(1, soc->mem.size)) == NULL)
 		fatal("calloc: failed to allocate %zu", soc->mem.size);
 
+	printf("setup %lu MB\n", soc->mem.size / 1024 / 1024);
+}
+
+/*
+ * Prepopulate our memory from a given file.
+ * The address given is translated using soc->mem.base.
+ */
+void
+riskie_mem_populate(const char *path, u_int64_t addr)
+{
+	int			fd;
+	struct stat		st;
+	ssize_t			ret;
+	u_int64_t		offset;
+
+	PRECOND(path != NULL);
+
+	if (addr < soc->mem.base)
+		fatal("%s: addr %" PRIx64 "too low", __func__, addr);
+
+	if (addr > (soc->mem.base + soc->mem.size))
+		fatal("%s: addr %" PRIx64 " too high", __func__, addr);
+
+	offset = addr - soc->mem.base;
+
 	if ((fd = open(path, O_RDONLY)) == -1)
-		fatal("open: %s", path);
+		fatal("open(%s): %s", path, strerror(errno));
 
 	if (fstat(fd, &st) == -1)
-		fatal("fstat: %s", path);
+		fatal("fstat(%s): %s", path, strerror(errno));
 
-	if ((size_t)st.st_size > soc->mem.size)
-		fatal("image doesn't fit in memory");
+	if ((size_t)st.st_size > soc->mem.size - offset)
+		fatal("file '%s' doesn't fit in memory", path);
 
-	if ((ret = read(fd, soc->mem.ptr, st.st_size)) == -1)
-		fatal("read");
+	if ((ret = read(fd, soc->mem.ptr + offset, st.st_size)) == -1)
+		fatal("read(%s): %s", path, strerror(errno));
 
 	close(fd);
 

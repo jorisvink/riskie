@@ -26,6 +26,7 @@
 
 #include "riskie.h"
 
+static void	config_parse_load(char *);
 static void	config_parse_memory(char *);
 static void	config_parse_peripheral(char *);
 
@@ -35,6 +36,7 @@ static const struct {
 	const char		*option;
 	void			(*cb)(char *);
 } keywords[] = {
+	{ "load",		config_parse_load },
 	{ "memory",		config_parse_memory },
 	{ "peripheral",		config_parse_peripheral },
 	{ NULL,			NULL },
@@ -115,6 +117,27 @@ config_read_line(FILE *fp, char *in, size_t len)
 }
 
 /*
+ * Loads the given binary into the address specified.
+ *
+ * Format:
+ *	load <path> <address>.
+ *		eg: load vmlinux 0x8020000
+ */
+static void
+config_parse_load(char *load)
+{
+	u_int64_t	addr;
+	char		path[512];
+
+	PRECOND(load != NULL);
+
+	if (sscanf(load, "%511s 0x%" PRIx64, path, &addr) != 2)
+		fatal("Bad load configuration: %s", load);
+
+	riskie_mem_populate(path, addr);
+}
+
+/*
  * Configures the base address for riskie and how much memory is available.
  *
  * Format:
@@ -136,6 +159,8 @@ config_parse_memory(char *memory)
 
 	if (soc->mem.base + soc->mem.size < soc->mem.base)
 		fatal("memory size is a bit too large");
+
+	riskie_mem_init();
 }
 
 /*

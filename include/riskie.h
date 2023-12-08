@@ -423,7 +423,8 @@ void		riskie_config_load(const char *);
 
 /* src/mem.c */
 void		riskie_mem_dump(void);
-void		riskie_mem_init(const char *);
+void		riskie_mem_init(void);
+void		riskie_mem_populate(const char *, u_int64_t);
 
 u_int8_t	riskie_mem_fetch8(struct hart *, u_int64_t);
 u_int16_t	riskie_mem_fetch16(struct hart *, u_int64_t);

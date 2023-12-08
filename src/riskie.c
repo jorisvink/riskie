@@ -90,7 +90,7 @@ main(int argc, char *argv[])
 	if (config != NULL)
 		riskie_config_load(config);
 
-	riskie_mem_init(argv[0]);
+	riskie_mem_populate(argv[0], soc->mem.base);
 	riskie_hart_init(&soc->ht, soc->mem.base, 0);
 
 	running = 1;
