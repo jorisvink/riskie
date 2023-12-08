@@ -16,6 +16,7 @@
 
 #include <sys/types.h>
 
+#include <time.h>
 #include <inttypes.h>
 #include <stdio.h>
 
@@ -33,7 +34,10 @@
 #define UART8250_REG_THR		0
 
 /* The Line Status Register. */
-#define UART8250_REG_LSR		5
+#define UART8250_REG_LSR		0x05
+
+/* LSR, there is data to be read. */
+#define UART8250_LSR_DATA_READY		0x01
 
 /* LSR, transmit holding register empty. */
 #define UART8250_LSR_TX_REG_EMPTY	0x20
@@ -100,6 +104,9 @@ peripheral_io(struct peripheral_io_req *io)
 	if (io->ls == RISKIE_MEM_STORE && reg == UART8250_REG_THR)
 		st->regs[UART8250_REG_LSR] = 0;
 
+	if (io->ls == RISKIE_MEM_LOAD && reg == UART8250_REG_THR)
+		st->regs[UART8250_REG_LSR] &= ~UART8250_LSR_DATA_READY;
+
 	return ((u_int8_t *)&st->regs[reg]);
 }
 
@@ -123,6 +130,7 @@ static void
 uart8250_tick(struct peripheral *perp)
 {
 	struct state	*st;
+	u_int8_t	input;
 
 	PRECOND(perp != NULL);
 
@@ -136,5 +144,11 @@ uart8250_tick(struct peripheral *perp)
 		printf("%c", (u_int8_t)st->regs[0]);
 		fflush(stdout);
 		uart8250_transmission_ready(st);
+	}
+
+	/* If there is input pending, make it available for transfer. */
+	if (riskie_input_pending(&input) != -1) {
+		st->regs[0] = input;
+		st->regs[UART8250_REG_LSR] |= UART8250_LSR_DATA_READY;
 	}
 }

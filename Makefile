@@ -20,6 +20,7 @@ SRC=	src/riskie.c \
 	src/hart.c \
 	src/instr.c \
 	src/peripheral.c \
+	src/term.c \
 	src/utils.c
 
 ifeq ("$(SANITIZE)", "1")

@@ -403,6 +403,7 @@ struct soc {
 
 /* src/riskie.c */
 int		riskie_last_signal(void);
+int		riskie_input_pending(u_int8_t *);
 void		fatal(const char *, ...) __attribute__((noreturn));
 
 extern struct soc	*soc;
@@ -469,5 +470,9 @@ u_int64_t	riskie_sign_extend(u_int32_t, u_int8_t);
 void		riskie_bit_clone(u_int64_t *, u_int8_t, u_int8_t);
 void		riskie_log(struct hart *, const char *, ...)
 		    __attribute__((format (printf, 2, 3)));
+
+/* src/term.c */
+void		riskie_term_setup(void);
+void		riskie_term_restore(void);
 
 #endif

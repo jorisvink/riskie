@@ -16,7 +16,9 @@
 
 #include <sys/types.h>
 #include <sys/signal.h>
+#include <sys/poll.h>
 
+#include <errno.h>
 #include <stdarg.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -27,11 +29,14 @@
 static void	riskie_trap_signal(int);
 static void	riskie_sig_handler(int);
 
+/* The global context. */
+struct soc	*soc = NULL;
+
 /* Last received signal. */
 static volatile sig_atomic_t	sig_recv = -1;
 
-/* The global context. */
-struct soc	*soc = NULL;
+/* The last input from stdin. */
+static int			last_input = -1;
 
 static void
 usage(void)
@@ -46,8 +51,11 @@ usage(void)
 int
 main(int argc, char *argv[])
 {
-	const char	*config;
-	int		ch, running, sig;
+	struct pollfd		pfd;
+	ssize_t			ret;
+	u_int8_t		input;
+	const char		*config;
+	int			ch, running, sig;
 
 	config = NULL;
 
@@ -86,6 +94,10 @@ main(int argc, char *argv[])
 	riskie_hart_init(&soc->ht, soc->mem.base, 0);
 
 	running = 1;
+	pfd.events = POLLIN;
+	pfd.fd = STDIN_FILENO;
+
+	riskie_term_setup();
 	riskie_trap_signal(SIGINT);
 
 	while (running) {
@@ -99,6 +111,26 @@ main(int argc, char *argv[])
 
 		riskie_hart_tick(&soc->ht);
 		riskie_peripheral_tick();
+
+		if (poll(&pfd, 1, 0) == -1) {
+			if (errno == EINTR)
+				continue;
+			fatal("poll: %s", strerror(errno));
+		}
+
+		if (pfd.revents & POLLIN) {
+			ret = read(STDIN_FILENO, &input, sizeof(input));
+			if (ret == -1) {
+				if (errno == EINTR)
+					continue;
+				fatal("read: %s", strerror(errno));
+			}
+
+			if (ret == 0)
+				fatal("eof on stdin");
+
+			last_input = input;
+		}
 	}
 
 	riskie_hart_cleanup(&soc->ht);
@@ -109,6 +141,7 @@ main(int argc, char *argv[])
 	}
 
 	free(soc->mem.ptr);
+	riskie_term_restore();
 
 	return (0);
 }
@@ -128,12 +161,31 @@ riskie_last_signal(void)
 }
 
 /*
+ * Returns the last input byte, if there is one.
+ */
+int
+riskie_input_pending(u_int8_t *byte)
+{
+	PRECOND(byte != NULL);
+
+	if (last_input == -1)
+		return (-1);
+
+	*byte = (u_int8_t)last_input;
+	last_input = -1;
+
+	return (0);
+}
+
+/*
  * Sad juju happened and riskie must die.
  */
 void
 fatal(const char *fmt, ...)
 {
 	va_list		args;
+
+	riskie_term_restore();
 
 	fprintf(stderr, "fatal: ");
 
