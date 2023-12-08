@@ -93,13 +93,26 @@
 #define RISCV_STATUS_BIT_MIE		3
 #define RISCV_STATUS_BIT_SPIE		5
 #define RISCV_STATUS_BIT_MPIE		7
+#define RISCV_STATUS_BIT_SPP		8
+#define RISCV_STATUS_BIT_MPP_0		11
+#define RISCV_STATUS_BIT_MPP_1		12
+
+/* The bits that S-mode cannot write in the status register. */
+#define RISCV_STATUS_SSTATUS_RO		0x7ffffffcfff2189e
 
 /*
- * mpi and mie bits that are important to us.
+ * Interrupt bits for both M and S mode.
  */
-#define RISCV_TRAP_BIT_MSI		3
-#define RISCV_TRAP_BIT_MTI		7
-#define RISCV_TRAP_BIT_MEI		11
+#define RISCV_IRQ_BIT_MSI		3
+#define RISCV_IRQ_BIT_MTI		7
+#define RISCV_IRQ_BIT_MEI		11
+
+#define RISCV_IRQ_BIT_SSI		1
+#define RISCV_IRQ_BIT_STI		5
+#define RISCV_IRQ_BIT_SEI		9
+
+/* The bits that S-mode cannot write in sie, sip. */
+#define RISCV_SIE_SIP_RO_BITS		0xfddc
 
 /*
  * The RV32I instruction set.
@@ -281,6 +294,7 @@
  */
 #define RISKIE_HART_FLAG_MTIMECMP	0
 #define RISKIE_HART_FLAG_MEM_VIOLATION	1
+#define RISKIE_HART_IRQ_TRIGGERED	2
 
 /*
  * A RISC-V hart.
@@ -298,6 +312,9 @@ struct hart {
 	/* Common registers. */
 	struct {
 		u_int64_t	pc;
+		u_int64_t	ie;
+		u_int64_t	ip;
+		u_int64_t	status;
 		u_int64_t	x[RISCV_REGISTER_COUNT];
 	} regs;
 
