@@ -20,12 +20,15 @@ ifeq ("$(SANITIZE)", "1")
 	LDFLAGS+=-fsanitize=address,undefined
 endif
 
+LDFLAGS=-shared
+
 OSNAME=$(shell uname -s | sed -e 's/[-_].*//g' | tr A-Z a-z)
 ifeq ("$(OSNAME)", "linux")
 	CFLAGS+=-DPLATFORM_LINUX
 	CFLAGS+=-D_GNU_SOURCE=1 -U_FORTIFY_SOURCE -D_FORTIFY_SOURCE=2
 else ifeq ("$(OSNAME)", "darwin")
 	CFLAGS+=-DPLATFORM_DARWIN
+	LDFLAGS=-dynamiclib -undefined dynamic_lookup -flat_namespace
 else ifeq ("$(OSNAME)", "openbsd")
 	CFLAGS+=-DPLATFORM_OPENBSD
 endif
@@ -41,7 +44,7 @@ $(OBJDIR):
 	@mkdir -p $(OBJDIR)
 
 $(OBJDIR)/uart8250.so: uart8250.c
-	$(CC) $(CFLAGS) -shared $< -o $@
+	$(CC) $(CFLAGS) $(LDFLAGS) $< -o $@
 
 clean:
 	rm -rf $(OBJDIR) $(PERIPHERALS)
